@@ -2,7 +2,7 @@
 export const CURATED_CONNECTOR_SLUGS = [
   "slack", "github", "gmail", "googlecalendar", "googlesheets", "googledocs", "googledrive", "notion", "linear", "sentry",
   "posthog", "discord", "twitter", "reddit", "zapier", "hubspot", "salesforce", "jira", "asana", "trello", "dropbox",
-  "airtable", "figma", "stripe",
+  "airtable", "figma", "stripe", "googleslides", "googletasks", "googlemeet", "googlecontacts", "googleforms",
 ] as const;
 
 export type CuratedConnectorSlug = (typeof CURATED_CONNECTOR_SLUGS)[number];

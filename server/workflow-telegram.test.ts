@@ -17,6 +17,8 @@ function fixture() {
   const updates: unknown[] = [];
   const sent: Record<string, unknown>[] = [];
   const offsets: number[] = [];
+  const uploads: { method: string; body: FormData }[] = [];
+  const actions: { method: string; body: Record<string, unknown> }[] = [];
   let wake: (() => void) | undefined;
   let enabled = false;
   let reply = "Finished";
@@ -36,7 +38,15 @@ function fixture() {
     },
     fetch: (async (url, options) => {
       const method = String(url).split("/").at(-1);
+      if (options?.body instanceof FormData) {
+        uploads.push({ method: method!, body: options.body });
+        return Response.json({ ok: true, result: {} });
+      }
       const body = JSON.parse(String(options?.body));
+      if (method === "editMessageReplyMarkup" || method === "answerCallbackQuery") {
+        actions.push({ method, body });
+        return Response.json({ ok: true, result: {} });
+      }
       if (method === "getMe")
         return Response.json({ ok: true, result: { username: "fixture_bot" } });
       if (method === "getWebhookInfo")
@@ -44,7 +54,7 @@ function fixture() {
       if (method === "sendMessage") {
         if (deliveryFails) throw new Error(`Cannot fetch ${url}`);
         sent.push(body);
-        return Response.json({ ok: true, result: {} });
+        return Response.json({ ok: true, result: { message_id: 1000 + sent.length } });
       }
       offsets.push(body.offset);
       if (body.offset === -1) {
@@ -75,6 +85,9 @@ function fixture() {
     calls,
     sent,
     offsets,
+    uploads,
+    actions,
+    update: (update: unknown) => { updates.push(update); wake?.(); },
     push,
     enable: (value: boolean) => {
       enabled = value;
@@ -195,4 +208,74 @@ it("refuses existing webhooks and retains redacted delivery failures after succe
   await expect.poll(() => f.offsets.includes(2)).toBe(true);
   expect(f.bridge.status().error).toContain("outputs remain in Tasks");
   expect(JSON.stringify(f.bridge.status())).not.toContain(config.token);
+});
+
+it("uploads binary images, videos, audio and documents with their original names", async () => {
+  const f = fixture();
+  await f.bridge.configure(config);
+  for (const [name, mime, method, field] of [
+    ["photo.png", "image/png", "sendPhoto", "photo"],
+    ["demo.mp4", "video/mp4", "sendVideo", "video"],
+    ["voice.mp3", "audio/mpeg", "sendAudio", "audio"],
+    ["preview.html", "text/html", "sendDocument", "document"],
+  ]) {
+    await f.bridge.file({ name: name!, mime: mime!, data: new Uint8Array([0, 255, 12]) });
+    const upload = f.uploads.at(-1)!;
+    expect(upload.method).toBe(method);
+    expect(upload.body.get("chat_id")).toBe("123");
+    const file = upload.body.get(field!) as File;
+    expect(file.name).toBe(name);
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(new Uint8Array([0, 255, 12]));
+  }
+});
+
+it("collects a phone form with choices, multi-select and free text without queuing answers as tasks", async () => {
+  const f = fixture();
+  await f.bridge.configure(config);
+  f.bridge.start(); f.enable(true);
+  await expect.poll(() => f.bridge.status().state).toBe("listening");
+  const answer = f.bridge.ask("Project brief", [
+    { question: "Platform?", options: [{ label: "Web" }, { label: "Mobile" }], custom: false },
+    { question: "Features?", options: [{ label: "Chat" }, { label: "Files" }], multiSelect: true },
+    { question: "Deadline?", options: [] },
+  ]);
+  await expect.poll(() => f.sent.length).toBe(2);
+  const first = f.sent[1] as { reply_markup: { inline_keyboard: Array<Array<{ callback_data: string }>> } };
+  const data = first.reply_markup.inline_keyboard[0]![0]!.callback_data;
+  let update = 1;
+  const click = (data: string, messageId: number, user = 456) => f.update({ update_id: update++, callback_query: { id: String(update), from: { id: user }, message: { message_id: messageId, chat: { id: 123 } }, data } });
+  click(data, 1002, 999);
+  click(data, 9999);
+  await expect.poll(() => f.actions.length).toBe(1);
+  expect(f.sent).toHaveLength(2);
+  click(data, 1002);
+  click(data, 1002);
+  await expect.poll(() => f.sent.length).toBe(3);
+  const id = data.split(":")[0];
+  click(`${id}:1:0`, 1003);
+  click(`${id}:1:1`, 1003);
+  click(`${id}:1:done`, 1003);
+  await expect.poll(() => f.sent.length).toBe(4);
+  expect(f.sent[3]).toMatchObject({ text: expect.stringContaining("Deadline?"), reply_markup: { force_reply: true } });
+  f.update({ update_id: update++, message: { message_id: 30, from: { id: 456 }, chat: { id: 123 }, text: "Friday", reply_to_message: { message_id: 1004 } } });
+  await expect(answer).resolves.toMatch(/Q: Platform\?\nA: Web[\s\S]*A: Chat, Files[\s\S]*A: Friday/);
+  expect(f.calls).toHaveLength(0);
+  f.update({ update_id: update++, message: { message_id: 31, from: { id: 456 }, chat: { id: 123 }, text: "old answer", reply_to_message: { message_id: 1004 } } });
+  await expect.poll(() => f.sent.length).toBe(5);
+  expect(f.calls).toHaveLength(0);
+});
+
+it("cancels a waiting form on pause and sends no empty queue acknowledgement", async () => {
+  const f = fixture();
+  await f.bridge.configure(config);
+  f.bridge.start(); f.enable(true);
+  await expect.poll(() => f.bridge.status().state).toBe("listening");
+  f.reply(""); f.push(1, "start");
+  await expect.poll(() => f.calls.length).toBe(1);
+  expect(f.sent).toHaveLength(0);
+  const answer = f.bridge.ask("Input", [{ question: "Name?", options: [] }]);
+  const rejection = expect(answer).rejects.toThrow(/closed or expired/);
+  await expect.poll(() => f.sent.length).toBe(2);
+  f.enable(false);
+  await rejection;
 });

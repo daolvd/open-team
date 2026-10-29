@@ -1,4 +1,13 @@
 {
+  "skills.find.title": "Find skills",
+  "skills.find.browse": "Browse skills.sh",
+  "skills.find.install": "Install find-skills",
+  "skills.find.installed": "find-skills installed",
+  "skills.find.hint": "Discover skills in the directory, or install Vercel’s find-skills so this bot can help you search. Imported skills stay off until you review and enable them.",
+  "apps.google.title": "Connect Google services",
+  "apps.google.hint": "Connect the services your bots need, then grant access in each bot’s settings. Each service has its own permissions and may ask you to sign in. This view includes every Google service available in your app catalog.",
+  "apps.google.progress": "{connected} of {total} services connected",
+  "apps.google.customAuth": "Requires your own Google OAuth app and Composio auth config. Configure your Composio key in Settings → API keys.",
   "skills.disableAll": "Disable all",
   "skills.disableAllHint": "Only this bot. Applies from the next turn; new skills stay off until enabled.",
   "connectedWorkspaces.localTitle": "Environments on this computer",

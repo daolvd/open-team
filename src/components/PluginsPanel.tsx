@@ -26,7 +26,7 @@ import {
 } from "@/lib/connector-status";
 import { BotAvatar } from "./Avatar";
 import { SidebarPopoverMenu } from "./SidebarPopoverMenu";
-import { appCategoryLabel, CATEGORY_SECTION_SIZE, catalogSections, connectorDescription, inCategory, rankCategories } from "@/lib/app-catalog";
+import { appCategoryLabel, CATEGORY_SECTION_SIZE, catalogSections, connectorDescription, inCategory, isGoogleApp, rankCategories } from "@/lib/app-catalog";
 import { McpServersPanel } from "./McpServersPanel";
 import { HighLevelCard } from "./HighLevelCard";
 import { PostizCard } from "./PostizCard";
@@ -425,8 +425,8 @@ export function PluginsPanel() {
       .finally(() => setBusySlug(null));
   };
 
-  const matching = (cards ?? []).filter((c) => (!managedConnectorUnavailableReason(mode, c.slug) || hasActiveConnection(status[c.slug]))
-    && (!search || `${c.label} ${c.slug} ${connectorDescription(c)}`.toLowerCase().includes(search.toLowerCase())));
+  const matching = (cards ?? []).filter((c) => (!managedConnectorUnavailableReason(mode, c.slug) || isGoogleApp(c) || hasActiveConnection(status[c.slug]))
+    && (!search || `${isGoogleApp(c) ? "google " : ""}${c.label} ${c.slug} ${connectorDescription(c)}`.toLowerCase().includes(search.toLowerCase())));
   const isConnected = (slug: string) => Boolean(status[slug]?.connected || status[slug]?.accounts?.length);
   const filter: AppsFilter = surface === "mcp" ? "mcp" : tab === "connected" ? "connected" : "all";
   const whopMatches = !search || `whop ${t("whop.description")}`.toLowerCase().includes(search.toLowerCase().trim());
@@ -457,7 +457,9 @@ export function PluginsPanel() {
   };
 
   const ranked = rankCategories([...(cards ?? []), POSTIZ_CATALOG_CARD], undefined, POSTIZ_CATALOG_CARD.categories);
-  const moreCategories = ranked.more;
+  const moreCategories = ranked.more.filter((name) => name !== "Google");
+  const googleCards = (cards ?? []).filter(isGoogleApp);
+  const googleConnected = googleCards.filter((card) => hasActiveConnection(status[card.slug])).length;
   const categoryInMore = category !== null && moreCategories.includes(category);
   const inCategoryView = filter === "all" && category !== null;
   const postizHere = showPostiz && (!inCategoryView || inCategory(POSTIZ_CATALOG_CARD, category));
@@ -584,7 +586,14 @@ export function PluginsPanel() {
             >
               {t("apps.filter.all")}
             </button>
-            {ranked.inline.map((name) => (
+            {googleCards.length > 0 && (
+              <button type="button" data-apps-category="Google" aria-pressed={filter === "all" && category === "Google"}
+                onClick={() => pickCategory(category === "Google" ? null : "Google")}
+                className={cn(pill, pillTone(filter === "all" && category === "Google"))}>
+                Google <span className="text-[11px] tabular-nums">{googleConnected}/{googleCards.length}</span>
+              </button>
+            )}
+            {ranked.inline.filter((name) => name !== "Google").map((name) => (
               <button
                 key={name}
                 type="button"
@@ -675,6 +684,13 @@ export function PluginsPanel() {
           )}
           {error && <div role="alert" className="mb-3 rounded-xl bg-danger/10 px-3 py-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key)}</div>}
 
+          {inCategoryView && category === "Google" && (
+            <div className="mb-4 rounded-xl bg-inset p-4" data-google-overview>
+              <p className="text-[14px] font-medium text-ink">{t("apps.google.title")}</p>
+              <p className="mt-1 text-[13px] leading-5 text-ink-secondary">{t("apps.google.hint")}</p>
+              <p className="mt-2 text-[12px] text-ink-secondary">{t("apps.google.progress", { connected: googleConnected, total: googleCards.length })}</p>
+            </div>
+          )}
           {filter !== "mcp" && (
             <div data-apps-grid className="@container flex flex-col gap-7 pt-1">
               {sections.filter((section) => section.kind !== "all").map((section) => section.kind === "connected" ? (
@@ -790,7 +806,7 @@ export function PluginsPanel() {
     const addingAccount = aliasSlug === card.slug && !included;
     const busy = busySlug === card.slug;
     const unavailableReason = managedConnectorUnavailableReason(mode, card.slug)
-      ? t("connectors.selfHostOnlyReason")
+      ? t(card.slug.startsWith("google") ? "apps.google.customAuth" : "connectors.selfHostOnlyReason")
       : null;
     const usedBy = connected || included ? botsUsingService(state.bots, state.instances, card.slug) : [];
     const description = unavailableReason ?? (

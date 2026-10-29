@@ -169,6 +169,8 @@ describe("control-omb ui drives the real renderer", () => {
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 15_000 }).toContain("Completed");
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "run-desktop.png"));
     await ui("click", info.ui, "--name", "Skills");
+    await browser("wait", "--fn", "document.querySelector('a[href=\"https://skills.sh\"]')!==null");
+    expect((await ui("snapshot", info.ui)).snapshot).toContain("Install find-skills");
     await expect.poll(skills).toHaveLength(2);
     expect((await skills()).every(skill => skill.enabled && skill.origin === "native")).toBe(true);
     await ui("click", info.ui, "--name", "Disable all");

@@ -1,4 +1,13 @@
 {
+  "skills.find.title": "Tìm skill",
+  "skills.find.browse": "Mở skills.sh",
+  "skills.find.install": "Cài find-skills",
+  "skills.find.installed": "Đã cài find-skills",
+  "skills.find.hint": "Tìm trong danh mục hoặc cài find-skills của Vercel để bot hỗ trợ tìm kiếm. Skill nhập về sẽ tắt cho đến khi bạn duyệt và bật.",
+  "apps.google.title": "Kết nối các dịch vụ Google",
+  "apps.google.hint": "Kết nối dịch vụ bot cần, rồi cấp quyền trong cài đặt từng bot. Mỗi dịch vụ có quyền riêng và có thể yêu cầu đăng nhập. Mục này hiển thị mọi dịch vụ Google có trong danh mục ứng dụng.",
+  "apps.google.progress": "Đã kết nối {connected}/{total} dịch vụ",
+  "apps.google.customAuth": "Cần ứng dụng Google OAuth và cấu hình xác thực Composio riêng. Thêm khóa Composio trong Cài đặt → API keys.",
   "skills.disableAll": "Tắt tất cả",
   "skills.disableAllHint": "Chỉ bot này. Áp dụng từ lượt tiếp theo; skill mới cũng tắt cho đến khi bạn bật.",
   "whop.description": "Sản phẩm, liên kết thanh toán, tư cách thành viên và thanh toán thông qua tích hợp chính thức của Whop.",

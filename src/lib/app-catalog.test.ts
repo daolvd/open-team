@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_SECTION_SIZE, catalogSections, inCategory, rankCategories } from "./app-catalog";
+import { CATEGORY_SECTION_SIZE, catalogSections, inCategory, isGoogleApp, rankCategories } from "./app-catalog";
 
 const card = (slug: string, ...categories: string[]) => ({ slug, categories });
 
@@ -20,6 +20,13 @@ describe("rankCategories", () => {
 });
 
 describe("inCategory", () => {
+  it("groups Google services independently of provider category metadata", () => {
+    for (const slug of ["gmail", "googledrive", "googlecalendar", "googlesheets", "googledocs", "googleslides", "googletasks", "googlemeet", "googlecontacts", "googleforms", "youtube", "bigquery", "firebase"]) {
+      expect(isGoogleApp(card(slug))).toBe(true);
+      expect(inCategory(card(slug), "Google")).toBe(true);
+    }
+    expect(inCategory(card("slack", "Communication"), "Google")).toBe(false);
+  });
   it("lets everything through without a category", () => {
     expect(inCategory({ slug: "x" }, null)).toBe(true);
     expect(inCategory(card("x", "Design"), "Design")).toBe(true);

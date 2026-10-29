@@ -479,8 +479,9 @@ it("routes Telegram input from the selected step and sends task receipts, output
   });
   expect(sent.every((message) => message.chat_id === "123")).toBe(true);
   expect(sent.map((message) => message.text).join("\n")).toMatch(
-    /Task queued:[\s\S]*Step completed:[\s\S]*GO: entry output[\s\S]*downstream output[\s\S]*lead summary/,
+    /Step completed:[\s\S]*GO: entry output[\s\S]*downstream output[\s\S]*lead summary/,
   );
+  expect(sent.some(message => /Task queued:|Task started:|Step started:|Workflow started:/.test(message.text))).toBe(false);
   fail = true;
   push(2);
   await expect
@@ -535,7 +536,7 @@ it("routes Telegram input from the selected step and sends task receipts, output
   expect((await app.get()).runs).toHaveLength(runCount);
   expect((await app.get()).workflow.enabled).toBe(false);
   expect((await app.tasks()).tasks.find(task => task.title === "Paused workflow")?.status).toBe("queued");
-  await expect.poll(() => sent.some(message => message.text.includes("Task completed: Telegram task 4"))).toBe(true);
+  await expect.poll(() => sent.filter(message => message.text === "lead summary").length).toBe(2);
   app.stopWorker();
   expect((await app.get()).telegram.state).toBe("paused");
   app.startWorker();

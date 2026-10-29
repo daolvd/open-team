@@ -20,8 +20,12 @@ export function rankCategories(cards: readonly CatalogCard[], inline = INLINE_CA
   return { inline: shown, more: ranked.filter((name) => !shown.includes(name)) };
 }
 
+export function isGoogleApp(card: CatalogCard): boolean {
+  return /^(google[a-z0-9_]*|gmail|youtube|bigquery|firebase)$/.test(card.slug.toLowerCase());
+}
+
 export function inCategory(card: CatalogCard, category: string | null): boolean {
-  return category === null || (card.categories ?? []).includes(category);
+  return category === null || (category === "Google" ? isGoogleApp(card) : (card.categories ?? []).includes(category));
 }
 
 export type CatalogSection<Card> =

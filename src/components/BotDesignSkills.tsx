@@ -2,6 +2,7 @@ import { useRef, useState, type DragEvent } from "react";
 import { Upload } from "lucide-react";
 import { api, type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
+import { FindSkillsCard } from "./FindSkillsCard";
 import { Switch } from "./SettingsPrimitives";
 import {
   SkillReviewDialog,
@@ -65,7 +66,7 @@ export function BotDesignSkills({ bot }: { bot: Bot }) {
   const [source, setSource] = useState("");
   const [notice, setNotice] = useState("");
   const [over, setOver] = useState(false);
-  const install = async (files?: File[]) => {
+  const install = async (files?: File[], remoteSource = source) => {
     if (importing.current || skills.working) return;
     importing.current = true;
     skills.setWorking("install");
@@ -84,7 +85,7 @@ export function BotDesignSkills({ bot }: { bot: Bot }) {
           {
             method: "POST",
             body: JSON.stringify({
-              source: source.replace(/^install\s+/i, "").trim(),
+              source: remoteSource.replace(/^install\s+/i, "").trim(),
             }),
           },
         );
@@ -177,6 +178,8 @@ export function BotDesignSkills({ bot }: { bot: Bot }) {
           {t("design.install")}
         </button>
       </form>
+      <FindSkillsCard installed={skills.skills.some((skill) => skill.name === "find-skills")}
+        busy={skills.loading || Boolean(skills.working)} onInstall={(url) => void install(undefined, url)} />
       {notice && (
         <p role="status" className="text-[12px] text-ink-secondary">
           {notice}

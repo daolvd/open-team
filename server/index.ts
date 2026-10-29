@@ -107,6 +107,9 @@ import { DataFailure } from "./data/types.ts";
 import { TeamComputers, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
 import { isEffortLevel, type CardAnswerer, type ResolvedSender, type SignInRequestCardData, type SteerQueueReason, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
 import { isPersistentQuestionCard, shouldSettleRequestCard } from "../shared/ask-question.ts";
+import { runWorkflowConversation } from "./workflow-conversation.ts";
+import { deliverWorkflowFiles } from "./workflow-files.ts";
+import { telegramHtmlPreview } from "./telegram-html-preview.ts";
 import { parseToolScope } from "../shared/tool-scope.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
 import { boatCreateRecoverySnapshot } from "./boat-create-idempotency.ts";
@@ -12287,19 +12290,53 @@ const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 const workflowRoutes = createWorkflowRoutes({
   dataDir: DATA_DIR,
   available: (id) => { const bot = store.bot(id); return Boolean(bot && !bot.hidden); },
-  run: async (node, prompt, opened, resumeThreadId) => {
+  run: async (node, prompt, opened, resumeThreadId, interaction) => {
     const bot = store.bot(node.botId);
     assertBotHere(bot);
     if (!bot || bot.hidden) throw new Error("Workflow bot is unavailable");
     const task = (resumeThreadId && store.taskByThread(bot.id, resumeThreadId)) || store.createTask(bot.id, `Workflow · ${node.instruction.slice(0, 50) || bot.name}`, false);
     if (!task) throw new Error("Cannot open workflow conversation");
     opened(task.threadId);
-    return new Promise<string>((resolve, reject) => {
-      void startTurn(bot.id, prompt, {
-        threadId: task.threadId,
-        onDispatchError: message => reject(new Error(message)),
-        onSettled: outcome => outcome.ok && !outcome.cards ? resolve(outcome.text) : reject(new Error(outcome.cards?.question || outcome.text || "Workflow step failed")),
-      }).catch(reject);
+    const threadId = task.threadId;
+    return runWorkflowConversation({
+      prompt: interaction ? `${prompt}\n\nThe person is using Telegram on a phone. Use ask_user for forms or questions, with one question per field and options where useful; wait for their answers. Attach deliverables or link files in Markdown so they can receive them. Never request passwords or tokens in Telegram.` : prompt,
+      interaction,
+      cancel: () => { void stopThreadForPerson(bot.id, threadId); },
+      messages: () => store.messagesFor(threadId),
+      subscribe: check => store.onChange(change => {
+        if ((change.type === "message" || change.type === "message.patch") && change.threadId === threadId) check();
+      }),
+      turn: text => new Promise<HostTurnResult>((resolve, reject) => {
+        void startTurn(bot.id, text, { threadId, onDispatchError: message => reject(new Error(message)), onSettled: resolve }).catch(reject);
+      }),
+      answer: async (message, answer) => {
+        const card = store.messagesFor(threadId).find(row => row.id === message.id)?.card;
+        const auth: RequestAuth = { kind: "loopback", scopes: ["admin", "client"] };
+        if (!card?.requestId || !isPersistentQuestionCard(card)) throw new Error("This question is no longer available.");
+        const refusal = cardAnswerRefusal(auth, threadId, card.requestId, "answer") ?? liveDecisionRefusal(card);
+        if (refusal) throw new Error(refusal);
+        let accepted = false;
+        await answeringCardAs(auth, threadId, card.requestId, async () => {
+          const result = await answerRequest(threadId, botForThread(bot.id, threadId)?.modelSelection.instanceId ?? "", card.requestId!, "answer", answer);
+          accepted = result === "answered";
+          if (result === "unavailable") store.patchMessage(threadId, message.id, { card: { ...card, answered: "answer", answeredText: answer } });
+          else if (!accepted) throw new Error("The provider did not accept the answer.");
+        });
+        return accepted;
+      },
+      outputs: async messages => {
+        if (!interaction) return;
+        const plan = chromeLauncher.plan();
+        await deliverWorkflowFiles({
+          messages, interaction, roots: messageFileRootsForThread(bot.id, threadId), attachmentsDir: ATTACHMENTS_DIR,
+          page: message => {
+            if (message.app?.source !== "html") return [];
+            const page = chatApps.publishablePage(threadId, message.id);
+            return page.ok ? page.files.map(file => ({ name: file.path.replaceAll("/", "-"), mime: file.path.endsWith(".html") ? "text/html" : "application/octet-stream", data: file.data })) : [];
+          },
+          ...(plan.kind === "chrome" ? { preview: (html: string) => telegramHtmlPreview(plan.chrome.path, html) } : {}),
+        });
+      },
     });
   },
 });

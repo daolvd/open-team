@@ -49,7 +49,7 @@ try {
     extraRoutes: [
       { path: "/api/connectors/catalog", handler: (_req, res) => {
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ configured: true, mode: "self-hosted", source: "api", cards: ["gmail", "slack"].map((slug) => ({ slug, label: slug === "gmail" ? "Gmail" : "Slack", blurb: "Synthetic account", logo: null, domain: null })) }));
+        res.end(JSON.stringify({ configured: true, mode: "self-hosted", source: "api", cards: ["gmail", "slack", "googledrive", "googlecalendar", "googlesheets", "googledocs", "googleslides", "googletasks", "googlemeet", "googlecontacts", "googleforms"].map((slug) => ({ slug, label: slug === "gmail" ? "Gmail" : slug === "slack" ? "Slack" : slug.replace("google", "Google "), blurb: "Synthetic account", logo: null, domain: null })) }));
       } },
       { path: /^\/api\/connectors(?:\/connected)?$/, handler: (_req, res) => {
         res.setHeader("content-type", "application/json");
@@ -238,6 +238,17 @@ try {
   pauseAuthorize(); await click("Try again"); await assertReserved(); release();
   assert.equal(requestBodies.at(-1)!.alias, "fixture-label");
   await wait("window.__oauthResponses===11");
+  await click("Settings Apps");
+  await command("click", '[data-apps-category="Google"]');
+  await wait("document.querySelector('[data-google-overview]')!==null");
+  const googleTiles = "[...document.querySelectorAll('[data-apps-grid] [data-app-tile]')].filter(card=>card.getClientRects().length>0)";
+  assert.equal(await evaluate(`${googleTiles}.length`), 10);
+  assert.equal(await evaluate(`${googleTiles}.every(card=>/^(google|gmail|youtube|bigquery|firebase)/.test(card.dataset.appTile))`), true);
+  await command("set", "viewport", "1440", "1000");
+  await command("screenshot", join(evidence, "google-desktop.png"), "--full");
+  await command("set", "viewport", "390", "844");
+  assert.equal(await evaluate("document.documentElement.scrollWidth<=innerWidth"), true);
+  await command("screenshot", join(evidence, "google-mobile.png"), "--full");
   const errors = await command("errors");
   assert.deepEqual(errors.errors, []);
   const result = { ok: true, fixtureUrl: fixture.info.url, logPath: fixture.info.logPath, attempts, evidence, tested: ["Settings synchronous reservation", "Settings blocked-popup fallback and Continue", "Settings close cancels late opening", "Settings pending inventory after reopen", "expired anchor renewal without stale alias", "card blocked-popup fallback", "native safe link navigation", "Open again reuses flow", "failure closes blank and Try again", "replacement and unmount cancel late opening", "expired-only app reconnects under its label", "card asks for a label instead of looping"], limitation: "Synthetic authorize responses in Chromium; no live provider, Safari or Brave acceptance." };

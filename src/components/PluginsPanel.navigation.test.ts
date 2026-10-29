@@ -514,7 +514,7 @@ describe("Apps pop-up", () => {
     const headings = [...html.matchAll(/<h3 id="[^"]*"[^>]*>([^<]*)/g)].map((match) => match[1]);
     // Postiz's own card lives in Social, so Social counts it beside the catalog's one social app.
     expect(headings).toEqual(["Connected", "Productivity", "Communication", "Social", "All apps"]);
-    expect(tree.filter((node) => node.props["data-apps-category"]).map((node) => node.props["data-apps-category"])).toEqual(["Productivity", "Communication", "Social", "Analytics", "Design"]);
+    expect(tree.filter((node) => node.props["data-apps-category"]).map((node) => node.props["data-apps-category"])).toEqual(["Google", "Productivity", "Communication", "Social", "Analytics", "Design"]);
     expect(html).toContain('aria-label="More categories"');
     // The dialog clips overflow, so the menu must portal out of it rather than open in place.
     expect(tree.find((node) => node.props.ariaLabel === "More categories")!.props.placement).toBeUndefined();

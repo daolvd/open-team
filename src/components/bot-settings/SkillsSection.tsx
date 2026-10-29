@@ -9,6 +9,7 @@ import { Switch } from "../SettingsPrimitives";
 import { inputCls } from "./field";
 import { OrgSkillsCard } from "./OrgSkillsCard";
 import { WriteCommandCard } from "./WriteCommandCard";
+import { FindSkillsCard } from "../FindSkillsCard";
 import { Select } from "../Select";
 
 export interface ManagedSkill {
@@ -365,8 +366,9 @@ export function SkillsSection({ bot }: { bot: Bot }) {
     }
   };
 
-  const importSkill = async () => {
-    const trimmed = source.trim();
+  const importSkill = async (remoteSource = source) => {
+    if (importing || working) return;
+    const trimmed = remoteSource.trim();
     if (!trimmed) return;
     setImporting(true);
     setError("");
@@ -398,6 +400,8 @@ export function SkillsSection({ bot }: { bot: Bot }) {
           {featureEnabled ? t("skills.learned.hintOn") : t("skills.learned.hintOff")}
         </div>
 
+        <FindSkillsCard installed={skills.some((skill) => skill.name === "find-skills")}
+          busy={loading || importing || Boolean(working)} onInstall={(url) => void importSkill(url)} />
         {libraryOn ? (
           <div className="mt-3 flex flex-col gap-1.5">
             {libraryPool.length > 0 ? (
@@ -451,10 +455,10 @@ export function SkillsSection({ bot }: { bot: Bot }) {
                 {importing ? t("skills.import.importing") : t("skills.import.button")}
               </button>
             </form>
-            {importMessage && <div className="mt-1 text-[12px] text-ink-secondary">{importMessage}</div>}
           </>
         )}
 
+        {importMessage && <div role="status" className="mt-2 text-[12px] text-ink-secondary">{importMessage}</div>}
         <button type="button" className="mt-3 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50" disabled={loading || Boolean(working)} onClick={() => void disableAll()}>{t("skills.disableAll")}</button>
         <div className="mt-1 text-[12px] text-ink-secondary">{t("skills.disableAllHint")}</div>
         {loading ? (
