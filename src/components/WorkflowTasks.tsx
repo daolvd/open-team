@@ -76,7 +76,7 @@ export function WorkflowTasks({
         <p role="status" className="text-sm text-ink-secondary">
           {enabled
             ? "Queue enabled"
-            : "Queue paused · Enable workflow to start"}{" "}
+            : "Bot tasks active · Workflow tasks paused"}{" "}
           · {pending} queued
         </p>
       </div>

@@ -35,7 +35,7 @@ export function WorkflowTelegramSettings({
   const [chatId, setChatId] = useState(status.chatId ?? "");
   const [userId, setUserId] = useState(status.userId ?? "");
   const [entryNodeId, setEntryNodeId] = useState(status.entryNodeId ?? "");
-  const [mode, setMode] = useState<"bot" | "workflow">(status.targetBotId ? "bot" : "workflow");
+  const [mode, setMode] = useState<"bot" | "workflow">(status.connected && !status.targetBotId ? "workflow" : "bot");
   const [targetBotId, setTargetBotId] = useState(status.targetBotId ?? "");
   useEffect(() => {
     setChatId(status.chatId ?? "");
@@ -183,7 +183,9 @@ export function WorkflowTelegramSettings({
             </select>
           </label>}
           <p className="text-xs leading-relaxed text-ink-secondary">
-            {dirty
+            {mode === "bot"
+              ? "Direct chat uses the bot’s normal instructions and routing. No need to enable the workflow. Keep this app’s server running."
+              : dirty
               ? "Save workflow changes before connecting Telegram."
               : !workflow.enabled
                 ? "Connected Telegram stays paused until you enable the workflow. Messages sent while disabled are discarded on activation."
@@ -192,7 +194,7 @@ export function WorkflowTelegramSettings({
           <div className="flex flex-wrap gap-3">
             <button
               type="submit"
-              disabled={busy || dirty || (mode === "bot" ? !targetBotId : !workflow.nodes.length || !entryNodeId)}
+              disabled={busy || (mode === "workflow" && dirty) || (mode === "bot" ? !targetBotId : !workflow.nodes.length || !entryNodeId)}
               className="rounded-lg bg-accent px-4 py-2.5 text-sm text-white disabled:opacity-50"
             >
               {busy

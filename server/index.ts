@@ -13259,7 +13259,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const task = workflowRoutes.createBotTask({ botId: internalSender.id, threadId: internalCapability.threadId,
             canAssign: id => id === internalSender.id || peers.has(id) }, body);
           internalCapability.createdWorkflowTasks = (internalCapability.createdWorkflowTasks ?? 0) + 1;
-          return json(res, 201, { task, note: "Queued in Tasks. Execution requires Enable workflow. Finish your turn; read list_tasks in a later turn for results." });
+          return json(res, 201, { task, note: "Queued in Tasks. Bot tasks run without enabling the workflow while the server is running. Finish your turn; read list_tasks in a later turn for results." });
         }
         return json(res, 405, { error: "Method not allowed" });
       }

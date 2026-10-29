@@ -35,23 +35,25 @@ runs become **interrupted** and are not replayed automatically.
 
 The **Tasks** tab contains an add-task form and a table of title, assignee,
 priority, status and results. Assign either one bot or the entire saved
-workflow. Tasks can be queued while paused; enabling starts the queue. One task
-runs at a time, highest priority first, then oldest first. Parallel branches
+workflow. Direct bot tasks run without enabling the workflow. Workflow tasks
+wait until enabled. One task runs at a time, highest priority first, then oldest first. Parallel branches
 within a workflow still execute together. The server must remain running.
 
 Use **View output & instructions** or **Open conversation** to inspect results.
 Filter active/completed/failed/interrupted rows, cancel queued tasks, or retry
 failed/interrupted tasks. Disabling finishes the current task and holds queued
-work. A restart marks active tasks interrupted; queued tasks resume only if the
-saved workflow is enabled. The queue allows 100 pending tasks and retains the
-latest 100 finished tasks when adding new work.
+workflow work; direct bot tasks continue. A restart marks active tasks interrupted;
+queued bot tasks resume when the server starts, while workflow tasks wait for
+enable. The queue allows 100 pending tasks and retains the latest 100 finished
+tasks when adding new work.
 
 Bots can use **create_task** to queue work for themselves or a reachable teammate,
 and **list_tasks** to read tasks they created or received. The table records the
 creator and assignee. Tasks run asynchronously: the bot must finish its current
 turn and check results in a later turn. A turn may create five tasks; delegation
 is limited to four levels and cannot return work to an ancestor. The bot's peer
-permissions still apply. Bot-created tasks also wait for **Enable workflow**.
+permissions still apply. Bot-created tasks run without **Enable workflow** using
+the recipient’s normal instructions and tools.
 
 ## Telegram input and output
 
@@ -65,7 +67,9 @@ the numeric chat ID and your allowed numeric user ID. **Message routing** offers
   starts there and follows its descendants. Unrelated branches and predecessors
   do not run. The lead still summarizes.
 
-Start a chat with the Telegram bot, connect, and enable the workflow. Only text
+Start a chat with the Telegram bot and connect. Direct bot chat works with an
+empty or disabled workflow and keeps the bot’s normal instructions and routing.
+Only **Run connected workflow steps** requires **Enable workflow**. Only text
 from that user in that chat is accepted. Each message becomes a normal-priority
 task, including direct conversations. The isolated fixture engine returns scripted
 responses; select a configured real engine for AI conversation.

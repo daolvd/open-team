@@ -155,7 +155,7 @@ it("persists the graph, runs roots concurrently, routes matching text and produc
   expect((await restarted.get()).runs).toEqual(runs);
 });
 
-it("lets bots queue peer tasks while disabled, validates authority and prevents delegation loops", async () => {
+it("runs bot-assigned tasks without enabling workflows, validates authority and prevents delegation loops", async () => {
   const app = await serve(async (node, _prompt, opened) => {
     opened(`delegated-${node.botId}`);
     return `Done by ${node.botId}`;
@@ -169,8 +169,8 @@ it("lets bots queue peer tasks while disabled, validates authority and prevents 
   expect(app.routes.botTasks("a")).toEqual([task]);
   expect(app.routes.botTasks("c")).toEqual([]);
   expect((await app.get()).runs).toEqual([]);
-  await app.save({ ...workflow, enabled: true });
   await expect.poll(async () => (await app.tasks()).tasks[0]?.status).toBe("completed");
+  expect((await app.get()).workflow.enabled).toBe(false);
   const nextCaller = { botId: "b", threadId: "delegated-b", canAssign: () => true };
   expect(() => app.routes.createBotTask(nextCaller, { title: "Loop", input: "Retry", targetBotId: "a" })).toThrow(/ancestor/);
   const child = app.routes.createBotTask(nextCaller, { title: "Test", input: "Test the design", targetBotId: "c" });
@@ -282,7 +282,7 @@ it("keeps new and migrated workflows disabled until explicitly enabled", async (
   expect((await app.start()).status).toBe(409);
 });
 
-it("queues tasks while disabled, automatically runs priority order when enabled and retains results", async () => {
+it("runs direct tasks in priority order without enabling workflows and retains results", async () => {
   const order: string[] = [];
   const app = await serve(async (_node, prompt, opened) => {
     order.push(prompt);
@@ -291,7 +291,6 @@ it("queues tasks while disabled, automatically runs priority order when enabled 
       ? Promise.reject(new Error("fixture failure"))
       : "Task done";
   });
-  app.startWorker();
   await app.save({ ...workflow, enabled: false });
   const add = (title: string, priority: string) =>
     app.request("/tasks", "POST", {
@@ -303,7 +302,7 @@ it("queues tasks while disabled, automatically runs priority order when enabled 
   expect((await add("Low task", "low")).status).toBe(201);
   expect((await add("High task", "high")).status).toBe(201);
   expect(order).toEqual([]);
-  await app.save(workflow);
+  app.startWorker();
   await expect
     .poll(async () =>
       app
@@ -336,7 +335,7 @@ it("queues tasks while disabled, automatically runs priority order when enabled 
     .poll(async () => (await app.tasks()).tasks[0]!.status)
     .toBe("failed");
   const failed = (await app.tasks()).tasks[0]!;
-  await app.save({ ...workflow, enabled: false });
+  app.stopWorker();
   expect((await app.request(`/tasks/${failed.id}/retry`, "POST")).status).toBe(
     200,
   );
@@ -344,7 +343,7 @@ it("queues tasks while disabled, automatically runs priority order when enabled 
   app.stopWorker();
 });
 
-it("finishes the current task but holds queued work when disabled", async () => {
+it("finishes direct tasks but holds workflow work when disabled", async () => {
   let release!: (value: string) => void;
   const pending = new Promise<string>((resolve) => {
     release = resolve;
@@ -364,7 +363,6 @@ it("finishes the current task but holds queued work when disabled", async () => 
   await app.request("/tasks", "POST", {
     title: "Second",
     input: "second",
-    targetBotId: "b",
   });
   expect((await app.start()).status).toBe(409);
   await app.save({ ...workflow, enabled: false });
@@ -386,7 +384,8 @@ it("finishes the current task but holds queued work when disabled", async () => 
       (await app.tasks()).tasks.every((task) => task.status === "completed"),
     )
     .toBe(true);
-  expect(calls).toEqual(["first", "second"]);
+  expect(calls).toHaveLength(4);
+  expect((await app.get()).runs[0]?.status).toBe("completed");
 });
 
 it("routes Telegram input from the selected step and sends task receipts, outputs, failures and final summaries", async () => {
@@ -508,6 +507,9 @@ it("routes Telegram input from the selected step and sends task receipts, output
       ),
     )
     .toBe(true);
+  await app.save({ ...workflow, enabled: false });
+  await app.request("/tasks", "POST", { title: "Paused workflow", input: "wait for enable", priority: "high" });
+  await app.save({ name: "Empty paused workflow", enabled: false, leadBotId: "", nodes: [], edges: [] });
   expect((await app.request("/telegram", "PUT", {
     entryNodeId: "",
     targetBotId: "b",
@@ -523,7 +525,7 @@ it("routes Telegram input from the selected step and sends task receipts, output
       return task?.input === `Telegram task ${id}` && task.status === "completed";
     }).toBe(true);
   }
-  const directTasks = (await app.tasks()).tasks.slice(0, 2);
+  const directTasks = (await app.tasks()).tasks.filter(task => task.source === "telegram" && task.targetBotId === "b").slice(0, 2);
   expect(calls.slice(-2)).toEqual([directTasks[1].id, directTasks[0].id]);
   expect(resumes.slice(-2)).toEqual([undefined, directTasks[1].threadId]);
   expect((await app.tasks()).tasks[0]).toMatchObject({
@@ -531,6 +533,13 @@ it("routes Telegram input from the selected step and sends task receipts, output
     conversationKey: "123:456:b",
   });
   expect((await app.get()).runs).toHaveLength(runCount);
+  expect((await app.get()).workflow.enabled).toBe(false);
+  expect((await app.tasks()).tasks.find(task => task.title === "Paused workflow")?.status).toBe("queued");
+  await expect.poll(() => sent.some(message => message.text.includes("Task completed: Telegram task 4"))).toBe(true);
+  app.stopWorker();
+  expect((await app.get()).telegram.state).toBe("paused");
+  app.startWorker();
+  await expect.poll(async () => (await app.get()).telegram.state).toBe("listening");
   await app.request("/telegram", "DELETE");
   expect((await app.get()).telegram.connected).toBe(false);
 });

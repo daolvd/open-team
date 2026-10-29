@@ -37,7 +37,7 @@ type Update = {
 
 export function createWorkflowTelegram(deps: {
   dataDir: string;
-  enabled(): boolean;
+  enabled(targetBotId?: string): boolean;
   validEntry(id: string): boolean;
   validBot?(id: string): boolean;
   run(input: string, entryNodeId: string, targetBotId?: string, conversationKey?: string): Promise<string>;
@@ -163,7 +163,7 @@ export function createWorkflowTelegram(deps: {
       String(message.from?.id) !== config.userId
     )
       return;
-    if (!deps.enabled() || connection !== config || !active) return;
+    if (!deps.enabled(config.targetBotId) || connection !== config || !active) return;
     try {
       const result = await deps.run(message.text.trim(), config.entryNodeId, config.targetBotId,
         config.targetBotId ? `${config.chatId}:${config.userId}:${config.targetBotId}` : undefined);
@@ -171,7 +171,9 @@ export function createWorkflowTelegram(deps: {
     } catch {
       await send(
         config,
-        "Cannot accept this task. Check that the workflow is enabled and its input step is available.",
+        config.targetBotId
+          ? "Cannot accept this task. Check that the selected bot is available."
+          : "Cannot accept this task. Check that the workflow is enabled and its input step is available.",
         message,
       );
     }
@@ -195,7 +197,7 @@ export function createWorkflowTelegram(deps: {
       while (
         !control.signal.aborted &&
         active &&
-        deps.enabled() &&
+        deps.enabled(config.targetBotId) &&
         connection === config
       ) {
         const updates = await call<Update[]>(
@@ -204,7 +206,7 @@ export function createWorkflowTelegram(deps: {
           { offset: config.offset, timeout: 25, allowed_updates: ["message"] },
           control.signal,
         );
-        if (control.signal.aborted || !deps.enabled() || connection !== config)
+        if (control.signal.aborted || !deps.enabled(config.targetBotId) || connection !== config)
           return;
         error = undefined;
         for (const update of updates) {
@@ -231,7 +233,7 @@ export function createWorkflowTelegram(deps: {
     }
   }
   function refresh() {
-    if (!active || !connection || !deps.enabled()) {
+    if (!active || !connection || !deps.enabled(connection.targetBotId)) {
       pause();
       return;
     }

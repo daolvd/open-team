@@ -96,11 +96,11 @@ export function createWorkflowRoutes(deps: {
   const telegram = createWorkflowTelegram({
     dataDir: deps.dataDir,
     fetch: deps.telegramFetch,
-    enabled: () => saved.workflow.enabled && active,
+    enabled: (targetBotId) => active && (Boolean(targetBotId) || saved.workflow.enabled),
     validEntry,
     validBot: deps.available,
     run: async (input, entryNodeId, targetBotId, conversationKey) => {
-      if (!saved.workflow.enabled || !active)
+      if (!active || (!targetBotId && !saved.workflow.enabled))
         refuse(409, "Enable the workflow first.");
       if (targetBotId ? !deps.available(targetBotId) : !validEntry(entryNodeId))
         refuse(400, "Choose an available bot or input step.");
@@ -268,7 +268,6 @@ export function createWorkflowRoutes(deps: {
   async function pump() {
     if (
       !active ||
-      !saved.workflow.enabled ||
       pumping ||
       saved.runs.some((r) => r.status === "running")
     )
@@ -276,7 +275,7 @@ export function createWorkflowRoutes(deps: {
     const rank = { high: 0, normal: 1, low: 2 };
     const task = saved.tasks
       .toReversed()
-      .filter((t) => t.status === "queued")
+      .filter((t) => t.status === "queued" && (t.targetBotId || saved.workflow.enabled))
       .sort(
         (a, b) =>
           rank[a.priority] - rank[b.priority] || a.createdAt - b.createdAt,

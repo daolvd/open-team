@@ -273,6 +273,10 @@ describe("control-omb ui drives the real renderer", () => {
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "workflow-tasks-mobile.png"));
     await browser("set", "viewport", "1600", "1000");
     await ui("click", info.ui, "--name", "Telegram");
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot).toContain("Telegram bot recipient");
+    expect((await ui("snapshot", info.ui)).snapshot).toContain("No need to enable the workflow");
+    const workflowRouting = refsNamed(await ui("snapshot", info.ui), "Message routing", "combobox");
+    await browser("select", workflowRouting[0]!, "workflow");
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot).toContain("Telegram input step");
     await ui("type", info.ui, "--name", "Bot token", "--text", "123456:fixture-token");
     await ui("type", info.ui, "--name", "Telegram chat ID", "--text", "123456789");

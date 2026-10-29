@@ -113,7 +113,7 @@
     },
     {
       "name": "create_task",
-      "description": "Add a persistent task to the user's Tasks table and assign it to yourself or a reachable OpenMausBot teammate from list_bots. Supply complete instructions: the recipient uses its own profile, model, tools and permissions. Execution requires the user's Enable workflow switch; disabled tasks stay queued. This queues work and returns immediately. Finish your current turn; never wait or poll for this task in the same turn. Use list_tasks in a later turn for results. Unlike coordinate_bots, this does not automatically resume you. At most five tasks per turn and four delegation levels; do not assign back to an ancestor.",
+      "description": "Add a persistent task to the user's Tasks table and assign it to yourself or a reachable OpenMausBot teammate from list_bots. Supply complete instructions: the recipient uses its own profile, model, tools and permissions. Bot tasks run without enabling the workflow while the app's server is running. This queues work and returns immediately. Finish your current turn; never wait or poll for this task in the same turn. Use list_tasks in a later turn for results. Unlike coordinate_bots, this does not automatically resume you. At most five tasks per turn and four delegation levels; do not assign back to an ancestor.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
