@@ -12,7 +12,7 @@ const bootstrapSource = fileURLToPath(new URL("../scripts/desktop-server-entry.m
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 test("the packaged server forks the bootstrap with a compile cache under userData", () => {
-  const resourcesPath = path.join("/Applications", "OpenMausBot.app", "Contents", "Resources");
+  const resourcesPath = path.join("/Applications", "open-team.app", "Contents", "Resources");
   const userData = path.join("/Users", "someone", "Library", "Application Support", "OpenMausBot");
   assert.deepEqual(serverChildLaunch({ resourcesPath, userData, env: {}, exists: () => true }), {
     entry: path.join(resourcesPath, "server", "desktop-entry.mjs"),
@@ -33,13 +33,13 @@ test("no cache where the app's path changes every launch: AppImage and App Trans
   const appImage = serverChildLaunch({
     resourcesPath: "/tmp/.mount_OpenMaXk3f9a/resources",
     userData: "/home/someone/.config/OpenMausBot",
-    env: { APPIMAGE: "/home/someone/OpenMausBot.AppImage" },
+    env: { APPIMAGE: "/home/someone/open-team.AppImage" },
     exists: () => true,
   });
   assert.equal(appImage.entry, path.join("/tmp/.mount_OpenMaXk3f9a/resources", "server", "desktop-entry.mjs"));
   assert.equal(appImage.compileCacheDir, null);
   const translocated = serverChildLaunch({
-    resourcesPath: "/private/var/folders/xy/T/AppTranslocation/2F1C/d/OpenMausBot.app/Contents/Resources",
+    resourcesPath: "/private/var/folders/xy/T/AppTranslocation/2F1C/d/open-team.app/Contents/Resources",
     userData: "/Users/someone/Library/Application Support/OpenMausBot",
     env: {},
     exists: () => true,

@@ -14,7 +14,7 @@ services:
       args:
         ENGINES: ${ENGINES:-}
     # prebuilt on every main push; `docker compose up --build` builds from source instead
-    image: ghcr.io/milind-soni/openmausbot:latest
+    image: ghcr.io/daolvd/open-team:latest
     restart: unless-stopped
     # The bots' browsers (docs/browser-packaging.md, "Process hygiene"): an
     # init collects the browser processes whose parents exit, and Chrome

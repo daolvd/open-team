@@ -6,6 +6,7 @@ import {
   DOCS_URL,
   LICENSE_URL,
   RELEASES_URL,
+  UPSTREAM_REPOSITORY,
   appVersion,
   openExternalLink,
   platformLabel,
@@ -66,6 +67,10 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
         {connected && <p className="mt-0.5 text-[13px] text-ink-secondary">{connected}</p>}
         <p className="mt-3 text-[13px] leading-relaxed text-ink-secondary">
           An open-source desktop home for your agents. Apache 2.0 licensed.
+        </p>
+        <p className="mt-2 text-[13px] text-ink-secondary">
+          Forked from <AboutLink href={UPSTREAM_REPOSITORY} label="OpenMausBot" />
+          {" by Milind Soni and contributors."}
         </p>
         <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-[13px]">
           <AboutLink href={APP_REPOSITORY} label="GitHub" />

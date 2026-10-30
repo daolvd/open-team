@@ -20,12 +20,18 @@ describe("About", () => {
   it("in the app on this computer, shows the app's own version on one line", () => {
     const html = about({ ogb: { platform: "darwin", app: { version: "0.1.127", ownPage: true } }, location: { host: "127.0.0.1:8799" } });
     expect(html).toContain(">Version 0.1.127 · macOS</p>");
+    expect(html).toContain(">open-team</h2>");
+    expect(html).toContain("Forked from");
+    expect(html).toContain(">OpenMausBot</button>");
     expect(html).not.toContain("Connected to");
   });
 
   it("in the app on another server, shows the app's own version and names that server with the version it runs", () => {
     const html = about({ ogb: { platform: "darwin", app: { version: "0.1.127", ownPage: false } }, location: { host: "bots.example.test" } });
     expect(html).toContain(">Version 0.1.127 · macOS</p>");
+    expect(html).toContain(">open-team</h2>");
+    expect(html).toContain("Forked from");
+    expect(html).toContain(">OpenMausBot</button>");
     expect(html).toContain(`>Connected to bots.example.test · version ${appVersion()}</p>`);
   });
 
