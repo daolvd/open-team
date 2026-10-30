@@ -6,6 +6,7 @@ describe("built-in agent tool read policy", () => {
     expect([...READ_ONLY_AGENT_TOOL_NAMES]).toEqual([
       "list_bots",
       "list_team_setup",
+      "get_bot_process",
       "list_shared_computers",
       "list_rooms",
       "list_threads",
@@ -35,7 +36,7 @@ describe("built-in agent tool read policy", () => {
     "manage_trigger", "memory_log", "manage_room", "create_room", "propose_profile", "skill_manage",
     // Read through their action tools, never as read-only names of their own.
     "list_triggers", "list_trigger_events", "session_read",
-    "propose_team_setup", "propose_bot_deletion",
+    "propose_team_setup", "propose_bot_deletion", "set_bot_process",
     "list_secrets", "read_credentials", "list_bots_and_delete", "unknown", "",
     "mcp__agents__list_bots", "agents.list_bots", "LIST_BOTS", " list_bots",
   ])("does not infer read access for %s", (name) => {

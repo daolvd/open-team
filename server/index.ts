@@ -582,7 +582,7 @@ import { createBotSettingsRoutes } from "./routes/bot-settings.ts";
 import { createBotPatchRoutes } from "./routes/bot-patch.ts";
 import { createBotOrderRoutes } from "./routes/bot-order.ts";
 import { createBotLifecycleRoutes } from "./routes/bot-lifecycle.ts";
-import { createBotDesignRoutes } from "./routes/bot-design.ts";
+import { createBotDesignService } from "./routes/bot-design.ts";
 import { createBotSkillsRoutes } from "./routes/bot-skills.ts";
 import { createSkillShareRoutes } from "./routes/skill-share.ts";
 import { createTeamContextRoutes } from "./routes/team-context.ts";
@@ -594,6 +594,7 @@ import { createInternalThreadRoutes } from "./routes/internal-threads.ts";
 import { createBrowserEvidenceRoutes } from "./routes/browser-evidence.ts";
 import { createSignInCardRoutes } from "./routes/sign-in-cards.ts";
 import { createInternalEscalateRoutes } from "./routes/internal-escalate.ts";
+import { createInternalBotProcessRoutes } from "./routes/internal-bot-process.ts";
 import { createInternalChiefTeamRoutes } from "./routes/internal-chief-team.ts";
 import { createRoomHoldRoutes } from "./routes/room-holds.ts";
 import { checkedGroupResponder, createGroupRoutes } from "./routes/groups.ts";
@@ -12341,7 +12342,7 @@ const workflowRoutes = createWorkflowRoutes({
   },
 });
 ROUTES.push(workflowRoutes);
-ROUTES.push(createBotDesignRoutes({
+const botDesigns = createBotDesignService({
   dataDir: DATA_DIR,
   available: (id) => { const bot = store.bot(id); assertBotHere(bot); return Boolean(bot && !bot.hidden); },
   run: async (botId, prompt, opened, threadId, signal) => {
@@ -12381,7 +12382,8 @@ ROUTES.push(createBotDesignRoutes({
     if (!writer) throw new Error("This engine has no setup assistant. Edit the process directly or select another engine.");
     return writer.generateText(prompt, { signal, timeoutMs: 85000 });
   },
-}));
+});
+ROUTES.push(botDesigns.routes);
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses })); ROUTES.push(createWorkspaceBannerRoutes({ changed: () => broadcast({ kind: "config", ...configStatus() }) }));
 ROUTES.push(createSharedComputerRoutes({ enabled: lendingEnabled, computers: sharedComputers, sessionLive: (id) => sessions.isLive(id), environmentId: ENVIRONMENT_ID,
   cloudHomeLender: CLOUD_HOME ? CLOUD_HOME_LENDER : null, principal: sessionLendingPrincipal, personKey, power: () => cloudPower, links: CLOUD_HOME ? deviceLinks : null, upgrades }));
@@ -13813,6 +13815,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         });
         return json(res, 201, proposed);
       }
+      if (await dispatchRoutes([createInternalBotProcessRoutes({ dataDir: DATA_DIR, bot: () => store.bot(internalCapability.botId),
+        bots: () => store.bots, requireActive: requireActiveInternalCapability, designs: botDesigns })],
+        { req, res, url, path, method, auth, json, readBody: readInternalBody })) return;
       if (await dispatchRoutes([createInternalChiefTeamRoutes({ bot: () => store.bot(internalCapability.botId), requireActive: requireActiveInternalCapability,
         teams: teamSetupTeams, bots: () => store.bots, instances: () => registry.describe() })], { req, res, url, path, method, auth, json, readBody })) return;
       if (method === "POST" && path === "/api/internal/team-setup-requests") {

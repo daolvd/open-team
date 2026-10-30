@@ -14,22 +14,23 @@ export function useBotDesign(botId: string) {
   const [error, setError] = useState("");
   const [working, setWorking] = useState("");
   const [proposal, setProposal] = useState<BotDesign | null>(null);
-  const loaded = useRef(false);
+  const savedDesign = useRef<BotDesign | null>(null);
   const mounted = useRef(true);
   const busy = useRef(false);
   const path = `/api/bots/${botId}/design`;
   useEffect(() => {
     mounted.current = true;
+    savedDesign.current = null;
+    setSnapshot(null);
     let cancelled = false;
     const poll = async () => {
       try {
         const result = await api<Snapshot>(path);
         if (cancelled) return;
+        const previous = savedDesign.current;
+        savedDesign.current = result.design;
         setSnapshot(result);
-        if (!loaded.current) {
-          setDraft(result.design);
-          loaded.current = true;
-        }
+        setDraft(current => !previous || JSON.stringify(current) === JSON.stringify(previous) ? result.design : current);
       } catch (cause) {
         if (!cancelled)
           setError(cause instanceof Error ? cause.message : String(cause));
@@ -66,6 +67,7 @@ export function useBotDesign(botId: string) {
         body: JSON.stringify(checked),
       });
       if (mounted.current) {
+        savedDesign.current = result.design;
         setDraft(result.design);
         setSnapshot((current) => ({
           ...result,

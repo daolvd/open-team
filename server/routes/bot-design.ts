@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   botDesignSchema,
   botProcessWorkflow,
+  type BotDesign,
   type BotDesignState,
   type BotProcessRun,
 } from "../../shared/bot-design.ts";
@@ -29,7 +30,7 @@ interface Deps {
   propose(botId: string, prompt: string, signal: AbortSignal): Promise<string>;
 }
 
-export function createBotDesignRoutes(deps: Deps): RouteHandler {
+export function createBotDesignService(deps: Deps) {
   const states = new Map<string, BotDesignState>();
   const pendingStops = new Set<string>();
   const controllers = new Map<string, AbortController>();
@@ -67,6 +68,17 @@ export function createBotDesignRoutes(deps: Deps): RouteHandler {
     const path = botDesignPath(botId, deps.dataDir);
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     writeFileAtomic(path, JSON.stringify(state), { mode: 0o600 });
+  }
+  function read(botId: string): BotDesignState {
+    if (!deps.available(botId)) throw Object.assign(new Error("Bot unavailable"), { status: 404 });
+    return structuredClone(stateFor(botId));
+  }
+  function save(botId: string, design: BotDesign): BotDesignState {
+    read(botId);
+    const state = stateFor(botId);
+    state.design = botDesignSchema.parse(design);
+    persist(botId, state);
+    return structuredClone(state);
   }
   async function execute(
     botId: string,
@@ -133,7 +145,7 @@ export function createBotDesignRoutes(deps: Deps): RouteHandler {
       persist(botId, state);
     }
   }
-  return async ({ req, res, path, method, auth, json, readBody }) => {
+  const routes: RouteHandler = async ({ req, res, path, method, auth, json, readBody }) => {
     const match = path.match(
       /^\/api\/bots\/([\w-]+)\/design(?:\/(run|stop|propose))?$/,
     );
@@ -159,9 +171,7 @@ export function createBotDesignRoutes(deps: Deps): RouteHandler {
       const parsed = botDesignSchema.safeParse(await readBody(req));
       if (!parsed.success)
         return json(res, 400, { error: parsed.error.message });
-      state.design = parsed.data;
-      persist(botId, state);
-      return json(res, 200, state);
+      return json(res, 200, save(botId, parsed.data));
     }
     if (action === "run" && method === "POST") {
       const parsed = z
@@ -260,4 +270,9 @@ export function createBotDesignRoutes(deps: Deps): RouteHandler {
     }
     return json(res, 405, { error: "Method not allowed" });
   };
+  return { routes, read, save };
+}
+
+export function createBotDesignRoutes(deps: Deps): RouteHandler {
+  return createBotDesignService(deps).routes;
 }

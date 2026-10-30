@@ -16,6 +16,7 @@ removes the first node, opens **Role & instructions**, and saves identity, metho
 and an enabled diamond-shaped process. It removes a connection and recreates it by
 dragging an Output port to an Input port, edits a text condition, moves a node
 and checks saved positions and connections.
+An external saved revision must appear in the open canvas without reloading.
 
 Each graph step opens its own conversation. After the plan, the two review
 steps must overlap in time, and the final step must wait for both results.

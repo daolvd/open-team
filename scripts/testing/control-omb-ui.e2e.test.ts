@@ -183,6 +183,10 @@ describe("control-omb ui drives the real renderer", () => {
     expect(saved.steps[0]).toMatchObject({ x: 90, y: 50 });
     expect(saved.edges).toHaveLength(4);
     expect(saved.edges.find((edge: any) => edge.to === saved.steps[1].id).contains).toBe("hello");
+    await request("PUT", `/api/bots/${info.botId}/design`, { ...saved, steps: saved.steps.map((step: any, index: number) => index === 0 ? { ...step, title: "Chief-authored plan" } : step) });
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 10_000 }).toContain("Chief-authored plan");
+    await request("PUT", `/api/bots/${info.botId}/design`, saved);
+    await browser("wait", "--fn", `document.querySelector('[aria-label="Select step 1: Plan"]') !== null`);
     mkdirSync(evidenceDir, { recursive: true });
     await ui("click", info.ui, "--name", "Fit view");
     await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
