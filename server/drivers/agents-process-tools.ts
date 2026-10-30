@@ -12,7 +12,7 @@ export const PROCESS_TOOL_DEFINITIONS = [
   },
   {
     name: "set_bot_process",
-    description: "Chief only: replace a managed bot's process in Design bot. Read get_bot_process first. Up to 24 steps; acyclic edges branch in parallel and join after predecessors; contains filters predecessor output. Omit edges for sequential order. Preserves enabled; never starts a run. The person enables/runs it. For project workers use create_bot cwd or start_thread folder; memory_update saves their own durable memory across threads.",
+    description: "Chief only: replace a managed bot's process in Design bot. Read get_bot_process first. Up to 24 steps; acyclic edges branch in parallel and join after predecessors; contains filters predecessor output. An optional step askBotId asks that reachable bot (including a Chief) for advice; instruction is the question and the reply becomes the step output. Use contains: NEEDS_DECISION to branch only when uncertain. Omit edges for sequential order. Preserves enabled; never starts a run. The person enables/runs it. For project workers use create_bot cwd or start_thread folder; memory_update saves their own durable memory across threads.",
     inputSchema: {
       type: "object", additionalProperties: false, required: ["bot_id", "design"],
       properties: {
@@ -27,6 +27,7 @@ export const PROCESS_TOOL_DEFINITIONS = [
                 id: { type: "string", pattern: "^[\\w-]+$", minLength: 1, maxLength: 80 },
                 title: { type: "string", minLength: 1, maxLength: 160 },
                 instruction: { type: "string", minLength: 1, maxLength: 8000 },
+                askBotId: { ...BOT_ID, description: "Exact reachable bot id to ask for advice, including the supervising Chief. Omit to execute with the process owner." },
                 x: { type: "number", minimum: 0, maximum: 5000 }, y: { type: "number", minimum: 0, maximum: 5000 },
               },
             } },

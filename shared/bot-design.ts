@@ -16,6 +16,8 @@ export const botDesignSchema = z
             .max(80),
           title: z.string().trim().min(1).max(160),
           instruction: z.string().trim().min(1).max(8000),
+          /** Ask this reachable bot for advice in a separate conversation; its reply becomes the step output. */
+          askBotId: z.string().regex(/^[\w-]+$/).max(128).optional(),
           x: z.number().min(0).max(5000).optional(),
           y: z.number().min(0).max(5000).optional(),
         }),
@@ -41,6 +43,7 @@ export type BotDesign = z.infer<typeof botDesignSchema>;
 export type BotProcessStepRun = {
   id: string;
   status: "pending" | "running" | "completed" | "failed" | "cancelled" | "skipped";
+  botId?: string;
   threadId?: string;
   startedAt?: number;
   endedAt?: number;
@@ -58,6 +61,7 @@ export type BotProcessRun = {
   threadId?: string;
   steps: BotProcessStepRun[];
 };
+export type BotProcessConsultant = { id: string; name: string };
 export type BotDesignState = { design: BotDesign; runs: BotProcessRun[] };
 
 export function botProcessWorkflow(design: { steps: { id: string; instruction: string }[]; edges?: Workflow["edges"] }): Workflow {

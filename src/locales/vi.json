@@ -5159,5 +5159,13 @@
   "design.exampleJoinInstruction": "Tổng hợp hai báo cáo thành danh sách ưu tiên kèm bằng chứng.",
   "design.openEditor": "Mở trình sửa process",
   "design.editorTitle": "Chỉnh sửa process",
-  "design.closeEditor": "Đóng trình sửa process"
+  "design.closeEditor": "Đóng trình sửa process",
+  "design.stepHandler": "Ai xử lý bước này?",
+  "design.executeStep": "Bot này · thực hiện bước",
+  "design.askBot": "Hỏi bot khác",
+  "design.botUnavailable": "Bot không khả dụng ({id})",
+  "design.question": "Câu hỏi cho bot khác",
+  "design.askingBot": "Hỏi {name}",
+  "design.askHint": "Bot này chờ câu trả lời rồi truyền sang các bước được nối. Để chỉ hỏi khi khó quyết định, đặt điều kiện NEEDS_DECISION trên đường nối vào và yêu cầu bước trước trả marker đó khi cần trợ giúp.",
+  "design.askSetupHint": "Chọn bot khác ở trên để hỏi ý kiến, kể cả Chef. Nếu không có bot nào, kiểm tra quyền giao tiếp của bot này."
 }

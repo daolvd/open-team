@@ -34,7 +34,7 @@ async function serve() {
   const worker = bot("worker", { cwd: dataDir });
   const bots = [worker, bot("outside", { section: "Private" }), bot("hidden", { hidden: true }), bot("other-owner", { visibility: { people: ["other@example.com"] } })];
   const run = vi.fn(async () => "passed");
-  const service = createBotDesignService({ dataDir, available: (id) => bots.some((bot) => bot.id === id && !bot.hidden), run, interrupt: async () => {}, activity: () => [], propose: async () => "" });
+  const service = createBotDesignService({ dataDir, consultants: () => [], available: (id) => bots.some((bot) => bot.id === id && !bot.hidden), run, interrupt: async () => {}, activity: () => [], propose: async () => "" });
   const route = createInternalBotProcessRoutes({ dataDir, bot: () => state.caller, bots: () => bots,
     requireActive: () => { if (!state.active) throw Object.assign(new Error("expired"), { status: 401 }); }, designs: service });
   const server = createServer(async (req, res) => {

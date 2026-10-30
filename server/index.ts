@@ -12344,6 +12344,7 @@ const workflowRoutes = createWorkflowRoutes({
 ROUTES.push(workflowRoutes);
 const botDesigns = createBotDesignService({
   dataDir: DATA_DIR,
+  consultants: (id) => { const bot = store.bot(id); return bot ? reachablePeers(store.bots, bot).filter((peer) => !peer.movedTo).map(({ id, name }) => ({ id, name })) : []; },
   available: (id) => { const bot = store.bot(id); assertBotHere(bot); return Boolean(bot && !bot.hidden); },
   run: async (botId, prompt, opened, threadId, signal) => {
     const bot = store.bot(botId);

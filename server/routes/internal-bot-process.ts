@@ -35,7 +35,11 @@ export function createInternalBotProcessRoutes(deps: {
       if (!body.success) return json(res, 400, { error: "Provide a process design object" });
       const parsed = botDesignSchema.safeParse({ ...body.data.design, enabled: design.enabled });
       if (!parsed.success) return json(res, 400, { error: parsed.error.message });
-      design = deps.designs.save(target.id, parsed.data).design;
+      try { design = deps.designs.save(target.id, parsed.data).design; }
+      catch (error) {
+        if ((error as { status?: number }).status === 400) return json(res, 400, { error: (error as Error).message });
+        throw error;
+      }
     }
     const folder = join(deps.dataDir, "workspaces", target.id);
     return json(res, 200, {

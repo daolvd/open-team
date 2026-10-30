@@ -6984,5 +6984,13 @@
   "design.exampleJoinInstruction": "Combine both reviews into a prioritized report with evidence.",
   "design.openEditor": "Open process editor",
   "design.editorTitle": "Process editor",
-  "design.closeEditor": "Close process editor"
+  "design.closeEditor": "Close process editor",
+  "design.stepHandler": "Who handles this step?",
+  "design.executeStep": "This bot · execute step",
+  "design.askBot": "Ask another bot",
+  "design.botUnavailable": "Unavailable bot ({id})",
+  "design.question": "Question for the other bot",
+  "design.askingBot": "Ask {name}",
+  "design.askHint": "This bot waits for the answer, then passes it to the connected steps. For help only when uncertain, connect an incoming line with condition NEEDS_DECISION and instruct the previous step to return that marker when it needs advice.",
+  "design.askSetupHint": "Choose another bot above to request advice, including from a Chief. If no bots appear, check this bot’s peer permissions."
 }

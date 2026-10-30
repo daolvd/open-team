@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { GitBranch, Maximize2, Plus, Trash2, X } from "lucide-react";
-import { botProcessWorkflow, type BotDesign, type BotProcessRun } from "../../shared/bot-design";
+import { botProcessWorkflow, type BotDesign, type BotProcessRun, type BotProcessConsultant } from "../../shared/bot-design";
 import { validateWorkflow } from "../../shared/workflow";
 import { t } from "@/lib/i18n";
 import { designButton, designInput } from "./BotDesignSkills";
@@ -31,8 +31,9 @@ function ProcessDialog({ children, footer, onClose }: { children: ReactNode; foo
   );
 }
 
-export function BotProcessEditor({ design, onChange, run, saveControls }: {
+export function BotProcessEditor({ design, onChange, run, saveControls, consultants = [] }: {
   design: BotDesign;
+  consultants?: BotProcessConsultant[];
   onChange: (design: BotDesign) => void;
   run?: BotProcessRun;
   saveControls: ReactNode;
@@ -54,7 +55,7 @@ export function BotProcessEditor({ design, onChange, run, saveControls }: {
   const index = steps.findIndex((step) => step.id === selected?.id);
   const result = run?.steps.find((step) => step.id === selected?.id);
   const edge = edgeIndex === null ? undefined : edges[edgeIndex];
-  const update = (patch: { title?: string; instruction?: string }) => onChange({ ...design, steps: steps.map((step) => step.id === selected?.id ? { ...step, ...patch } : step) });
+  const update = (patch: Partial<BotDesign["steps"][number]>) => onChange({ ...design, steps: steps.map((step) => step.id === selected?.id ? { ...step, ...patch } : step) });
   const connect = (from: string, to: string) => {
     const next = { ...design, edges: [...edges, { from, to }] };
     try {
@@ -90,7 +91,7 @@ export function BotProcessEditor({ design, onChange, run, saveControls }: {
     </div>
     {error && <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p>}
     <div className={`mt-3 min-w-0 ${expanded ? "grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden" : "space-y-3"}`}>
-      <BotProcessCanvas expanded={expanded} onOpen={expanded ? undefined : () => setExpanded(true)} design={design} selectedId={selected?.id ?? ""} connecting={connecting} onSelect={(id) => { setSelectedId(id); setEdgeIndex(null); setExpanded(true); }} onConnect={connect} onConnecting={setConnecting} onChange={onChange} onEdge={(index) => { setEdgeIndex(index); setExpanded(true); }} run={run} empty={
+      <BotProcessCanvas consultants={consultants} expanded={expanded} onOpen={expanded ? undefined : () => setExpanded(true)} design={design} selectedId={selected?.id ?? ""} connecting={connecting} onSelect={(id) => { setSelectedId(id); setEdgeIndex(null); setExpanded(true); }} onConnect={connect} onConnecting={setConnecting} onChange={onChange} onEdge={(index) => { setEdgeIndex(index); setExpanded(true); }} run={run} empty={
         <div className="flex min-h-[300px] flex-col items-center justify-center gap-4 px-5 py-8 text-center">
           <button type="button" className="inline-flex min-h-20 items-center gap-2 rounded-xl border border-dashed border-accent bg-card px-6 text-[14px] font-medium text-accent-text hover:bg-control focus-visible:outline-2 focus-visible:outline-accent" onClick={addStep}><Plus size={18} />{t("design.addFirstStep")}</button>
           <p className="max-w-sm text-[12px] leading-5 text-ink-secondary">{t("design.emptySteps")}</p>
@@ -109,8 +110,16 @@ export function BotProcessEditor({ design, onChange, run, saveControls }: {
           if (connecting === selected.id) setConnecting(null);
         }}><Trash2 size={14} /></button></div>
         <label className="block text-[12px] font-medium">{t("design.stepTitle", { number: index + 1 })}<input className={`${designInput} mt-1`} value={selected.title} maxLength={160} placeholder={t("design.stepTitlePlaceholder")} onChange={(event) => update({ title: event.target.value })} /></label>
-        <label className="block text-[12px] font-medium">{t("design.stepInstruction", { number: index + 1 })}<textarea className={`${designInput} mt-1`} rows={5} value={selected.instruction} maxLength={8000} placeholder={t("design.stepInstructionPlaceholder")} onChange={(event) => update({ instruction: event.target.value })} /></label>
-        {result && run && <div className="border-t border-hairline/40 pt-3 text-[12px]"><p className="flex flex-wrap justify-between gap-2 text-ink-secondary"><span>{t("design.history")}</span><span>{new Date(run.startedAt).toLocaleString()} · {t(processStatusKeys[result.status])}</span></p>{(result.output || result.error) && <div className="mt-3"><p className="font-medium">{t(result.error ? "design.error" : "design.output")}</p><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono">{result.error ?? result.output}</pre></div>}</div>}
+        <label className="block text-[12px] font-medium">{t("design.stepHandler")}<select className={`${designInput} mt-1`} value={selected.askBotId ?? ""} onChange={(event) => update({ askBotId: event.target.value || undefined })}>
+          <option value="">{t("design.executeStep")}</option>
+          <optgroup label={t("design.askBot")}>
+            {consultants.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
+            {selected.askBotId && !consultants.some((bot) => bot.id === selected.askBotId) && <option value={selected.askBotId}>{t("design.botUnavailable", { id: selected.askBotId })}</option>}
+          </optgroup>
+        </select></label>
+        <p className="text-[12px] leading-5 text-ink-secondary">{t(selected.askBotId ? "design.askHint" : "design.askSetupHint")}</p>
+        <label className="block text-[12px] font-medium">{selected.askBotId ? t("design.question") : t("design.stepInstruction", { number: index + 1 })}<textarea className={`${designInput} mt-1`} rows={5} value={selected.instruction} maxLength={8000} placeholder={t("design.stepInstructionPlaceholder")} onChange={(event) => update({ instruction: event.target.value })} /></label>
+        {result && run && <div className="border-t border-hairline/40 pt-3 text-[12px]"><p className="flex flex-wrap justify-between gap-2 text-ink-secondary"><span>{selected.askBotId ? t("design.askingBot", { name: consultants.find((bot) => bot.id === selected.askBotId)?.name ?? selected.askBotId }) : t("design.history")}</span><span>{new Date(run.startedAt).toLocaleString()} · {t(processStatusKeys[result.status])}</span></p>{(result.output || result.error) && <div className="mt-3"><p className="font-medium">{t(result.error ? "design.error" : "design.output")}</p><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono">{result.error ?? result.output}</pre></div>}</div>}
       </div>}
       </aside>}
     </div>

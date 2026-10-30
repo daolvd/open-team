@@ -112,6 +112,58 @@ describe("control-omb ui drives the real renderer", () => {
     if (ownsEvidenceDir) await removeTempDir(evidenceDir);
   });
 
+  run("configures a process step to ask Chef and shows the returned answer", async () => {
+    launched = await launch([]);
+    const { info } = launched;
+    const handle = JSON.parse(readFileSync(info.ui, "utf8")) as UiHandle;
+    const browser = (...args: string[]) => agentBrowser(handle.binary, sessionEnv(handle), args);
+    const request = fixtureApi(info.url);
+    const chief = (await runControlOmb(["new-bot", "--name", "Chef", "--url", info.url]) as any).bot;
+    await request("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true });
+    const path = `/api/bots/${info.botId}/design`;
+    await request("PUT", path, { enabled: true, steps: [
+      { id: "ask", title: "Ask for a decision", instruction: "Choose the safest migration option." },
+      { id: "continue", title: "Continue", instruction: "Use the preceding decision to explain the next step." },
+    ], edges: [{ from: "ask", to: "continue" }] });
+    await browser("set", "viewport", "1600", "1000");
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 15_000 }).toContain("Full access for Verification fixture");
+    await ui("click", info.ui, "--name", "Bot's screen");
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 15_000 }).toContain("Design bot");
+    await browser("click", "#computer-panel-tabs-tab-design");
+    await expect.poll(async () => {
+      const snapshot = await ui("snapshot", info.ui);
+      mkdirSync(evidenceDir, { recursive: true });
+      writeFileSync(join(evidenceDir, "ask-bot-open.json"), JSON.stringify({ info, snapshot, state: await request("GET", path) }, null, 2));
+      return snapshot.snapshot;
+    }, { timeout: 15_000 }).toContain("Select step 1: Ask for a decision");
+    await ui("click", info.ui, "--name", "Select step 1: Ask for a decision");
+    await browser("select", "dialog select", chief.id);
+    expect((await ui("snapshot", info.ui)).snapshot).toContain("Question for the other bot");
+    await browser("fill", "dialog textarea", "Which migration should I choose and why?");
+    await ui("click", info.ui, "--name", "Save process");
+    await expect.poll(async () => (await request("GET", path)).design.steps[0]?.askBotId).toBe(chief.id);
+    mkdirSync(evidenceDir, { recursive: true });
+    await ui("screenshot", info.ui, "--out", join(evidenceDir, "ask-bot-desktop.png"));
+    await browser("set", "viewport", "390", "844");
+    await browser("focus", "dialog select");
+    expect((await ui("eval", info.ui, "--js", "(() => { const d=document.querySelector('dialog[open]'); return d.scrollWidth <= d.clientWidth; })()")).result).toBe(true);
+    await ui("screenshot", info.ui, "--out", join(evidenceDir, "ask-bot-mobile.png"));
+    await browser("set", "viewport", "1600", "1000");
+    await ui("click", info.ui, "--name", "Close process editor");
+    await ui("type", info.ui, "--name", "Process task", "--text", "Choose a migration approach");
+    await ui("click", info.ui, "--name", "Run process");
+    await expect.poll(async () => (await request("GET", path)).runs[0]?.status, { timeout: 45_000 }).toBe("completed");
+    const state = await request("GET", path);
+    expect(state.runs[0].steps.map((step: any) => step.botId)).toEqual([chief.id, info.botId]);
+    expect(state.runs[0].steps[0].output).toBe(REPLY);
+    expect(state.runs[0].steps[0].threadId).not.toBe(state.runs[0].steps[1].threadId);
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 10_000 }).toContain("Completed");
+    await ui("click", info.ui, "--name", "Select step 1: Ask for a decision");
+    expect((await ui("eval", info.ui, "--js", "document.querySelector('dialog pre').textContent")).result).toBe(REPLY);
+    await ui("screenshot", info.ui, "--out", join(evidenceDir, "ask-bot-result.png"));
+    writeFileSync(join(evidenceDir, "ask-bot-run.json"), JSON.stringify({ fixture: info, state }, null, 2));
+  }, 180_000);
+
   run("saves bot design, connects parallel steps and persists native skill switches", async () => {
     launched = await launch([]);
     const { info } = launched;

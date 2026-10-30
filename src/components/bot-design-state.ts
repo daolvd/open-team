@@ -4,10 +4,11 @@ import {
   botDesignSchema,
   type BotDesign,
   type BotDesignState,
+  type BotProcessConsultant,
 } from "../../shared/bot-design";
 import type { WireMessage } from "../../shared/wire";
 
-type Snapshot = BotDesignState & { activity: WireMessage[] };
+type Snapshot = BotDesignState & { activity: WireMessage[]; consultants: BotProcessConsultant[] };
 export function useBotDesign(botId: string) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [draft, setDraft] = useState<BotDesign>(botDesignSchema.parse({}));
@@ -72,6 +73,7 @@ export function useBotDesign(botId: string) {
         setSnapshot((current) => ({
           ...result,
           activity: current?.activity ?? [],
+          consultants: current?.consultants ?? [],
         }));
       }
     });

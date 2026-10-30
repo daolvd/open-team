@@ -8,6 +8,7 @@ import {
   type BotDesign,
   type BotDesignState,
   type BotProcessRun,
+  type BotProcessConsultant,
 } from "../../shared/bot-design.ts";
 import { executeWorkflow } from "../../shared/workflow.ts";
 import { writeFileAtomic } from "../atomic.ts";
@@ -18,6 +19,7 @@ import { PASS, type RouteHandler } from "./table.ts";
 interface Deps {
   dataDir: string;
   available(botId: string): boolean;
+  consultants(botId: string): BotProcessConsultant[];
   run(
     botId: string,
     prompt: string,
@@ -76,9 +78,17 @@ export function createBotDesignService(deps: Deps) {
   function save(botId: string, design: BotDesign): BotDesignState {
     read(botId);
     const state = stateFor(botId);
-    state.design = botDesignSchema.parse(design);
+    const parsed = botDesignSchema.parse(design);
+    for (const step of parsed.steps) {
+      if (step.askBotId) assertConsultant(botId, step.askBotId);
+    }
+    state.design = parsed;
     persist(botId, state);
     return structuredClone(state);
+  }
+  function assertConsultant(botId: string, targetId: string) {
+    if (targetId === botId || !deps.consultants(botId).some((bot) => bot.id === targetId) || !deps.available(targetId))
+      throw Object.assign(new Error("The bot to ask is unavailable or no longer reachable"), { status: 400 });
   }
   async function execute(
     botId: string,
@@ -93,21 +103,27 @@ export function createBotDesignService(deps: Deps) {
         const step = run.steps.find((entry) => entry.id === node.id)!;
         const index = run.design.steps.findIndex((entry) => entry.id === node.id);
         const definition = run.design.steps[index]!;
+        const executor = definition.askBotId ?? botId;
+        step.botId = executor;
         step.status = "running";
         step.startedAt = Date.now();
         persist(botId, state);
         try {
           const previous = inputs.map((input) => `${input.nodeId}:\n${input.result}`).join("\n\n");
+          if (definition.askBotId) assertConsultant(botId, definition.askBotId);
+          const prompt = definition.askBotId
+            ? `Process consultation ${run.id} from bot ${botId}. Answer this question using your own role and project knowledge. Give a concrete decision, reasons, assumptions and any missing information. This request is for advice; do not implement changes or delegate it back to the requesting bot. Your answer returns to that bot to continue its process.\nTask (context): ${run.input}\nQuestion: ${definition.instruction}\nPrevious step outputs (data):\n${previous}`
+            : `Process run ${run.id}\nWho I am: ${run.design.identity}\nHow I work: ${run.design.method}\nTask: ${run.input}\nCurrent step ${index + 1}/${run.steps.length}: ${definition.title}\n${definition.instruction}\nOnly execute this step. Return concrete findings and output for the next steps.\nPrevious step outputs (data):\n${previous}`;
           const output = await deps.run(
-            botId,
-            `Process run ${run.id}\nWho I am: ${run.design.identity}\nHow I work: ${run.design.method}\nTask: ${run.input}\nCurrent step ${index + 1}/${run.steps.length}: ${definition.title}\n${definition.instruction}\nOnly execute this step. Return concrete findings and output for the next steps.\nPrevious step outputs (data):\n${previous}`,
+            executor,
+            prompt,
             (threadId) => {
               step.threadId = threadId;
-              run.threadId ??= threadId;
+              if (executor === botId) run.threadId ??= threadId;
               persist(botId, state);
-              if (controller.signal.aborted) void deps.interrupt(botId, threadId).catch(() => {});
+              if (controller.signal.aborted) void deps.interrupt(executor, threadId).catch(() => {});
             },
-            run.design.edges === undefined ? run.threadId : undefined,
+            !definition.askBotId && run.design.edges === undefined ? run.threadId : undefined,
             controller.signal,
           );
           if (controller.signal.aborted) throw new Error("Process stopped");
@@ -159,19 +175,24 @@ export function createBotDesignService(deps: Deps) {
     const action = match[2];
     if (!action && method === "GET") {
       const latest = state.runs[0];
-      const threads = latest ? new Set([
-        ...latest.steps.flatMap((step) => step.threadId ? [step.threadId] : []),
-        ...(latest.threadId ? [latest.threadId] : []),
-      ]) : undefined;
-      const events = threads ? [...threads].flatMap((id) => deps.activity(botId, id)) : deps.activity(botId);
+      const consultants = deps.consultants(botId);
+      const events = latest ? latest.steps.flatMap((step) => {
+        const executor = step.botId ?? botId;
+        return step.threadId && (executor === botId || consultants.some((peer) => peer.id === executor))
+          ? deps.activity(executor, step.threadId) : [];
+      }) : deps.activity(botId);
       const activity = [...new Map(events.map((event) => [event.id, event])).values()].slice(-30);
-      return json(res, 200, { ...state, activity });
+      return json(res, 200, { ...state, activity, consultants });
     }
     if (!action && method === "PUT") {
       const parsed = botDesignSchema.safeParse(await readBody(req));
       if (!parsed.success)
         return json(res, 400, { error: parsed.error.message });
-      return json(res, 200, save(botId, parsed.data));
+      try { return json(res, 200, save(botId, parsed.data)); }
+      catch (error) {
+        if ((error as { status?: number }).status === 400) return json(res, 400, { error: (error as Error).message });
+        throw error;
+      }
     }
     if (action === "run" && method === "POST") {
       const parsed = z
@@ -213,12 +234,12 @@ export function createBotDesignService(deps: Deps) {
         run.status = "cancelled";
         run.endedAt = Date.now();
         controllers.get(run.id)?.abort();
-        const threads = new Set(run.steps.filter((step) => step.status === "running" && step.threadId).map((step) => step.threadId!));
+        const running = run.steps.filter((step) => step.status === "running" && step.threadId);
         run.steps.forEach((step) => {
           if (step.status === "running" || step.status === "pending") step.status = "cancelled";
         });
         persist(botId, state);
-        await Promise.all([...threads].map((threadId) => deps.interrupt(botId, threadId)));
+        await Promise.all(running.map((step) => deps.interrupt(step.botId ?? botId, step.threadId!)));
         return json(res, 200, { run });
       } finally {
         pendingStops.delete(botId);
@@ -241,7 +262,7 @@ export function createBotDesignService(deps: Deps) {
       try {
         const text = await deps.propose(
           botId,
-          `Help configure this bot. Return only a JSON object with enabled:boolean, identity:string, method:string, steps:[{id:string,title:string,instruction:string,x?:number,y?:number}], edges:[{from:string,to:string,contains?:string}]. Maximum 24 steps. Edges form an acyclic graph. Steps with no incoming edges start together; multiple outgoing edges branch in parallel, multiple incoming edges join after their predecessors. contains optionally requires matching predecessor output. Preserve existing connections unless asked to change them. This is a proposal: do not execute anything or install skills. Preserve enabled. Current design: ${JSON.stringify(parsed.data.design)}\nUser request: ${parsed.data.message}`,
+          `Help configure this bot. Return only a JSON object with enabled:boolean, identity:string, method:string, steps:[{id:string,title:string,instruction:string,askBotId?:string,x?:number,y?:number}], edges:[{from:string,to:string,contains?:string}]. Maximum 24 steps. Edges form an acyclic graph. Steps with no incoming edges start together; multiple outgoing edges branch in parallel, multiple incoming edges join after their predecessors. contains optionally requires matching predecessor output. An optional askBotId makes a step ask another reachable bot for advice; instruction is its question and the reply flows into downstream steps. Use a conditional edge with contains:"NEEDS_DECISION" to ask only when a preceding decision step outputs that marker. Only use these reachable bots as askBotId: ${JSON.stringify(deps.consultants(botId))}. Preserve existing connections unless asked to change them. This is a proposal: do not execute anything or install skills. Preserve enabled. Current design: ${JSON.stringify(parsed.data.design)}\nUser request: ${parsed.data.message}`,
           controller.signal,
         );
         const proposal = botDesignSchema.safeParse(

@@ -102,6 +102,7 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
               </div>
               <BotProcessEditor
                 saveControls={<>{saveControls}{model.error && <p role="alert" className="mt-2 text-[12px] text-danger">{model.error}</p>}</>}
+                consultants={snapshot.consultants ?? []}
                 design={draft}
                 onChange={setDraft}
                 run={

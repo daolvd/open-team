@@ -37,7 +37,34 @@ case-sensitive text matching; a join waits for all predecessors and receives
 matching outputs. A failed predecessor skips its dependent nodes. Stop cancels
 waiting steps and interrupts each active branch conversation.
 
-It then checks native skill controls in both **Design bot → Skills** and
+## Asking another bot for a decision
+
+Select a step in **Design bot**, choose a reachable bot under **Who handles this
+step? → Ask another bot**, and enter the question. Save and enable the process.
+During **Run process**, this step opens a separate conversation with the selected
+bot, waits for its answer and passes that answer to connected steps. The canvas
+labels the recipient; selecting the completed node shows its answer. Stop also
+interrupts a consultation in progress. Ordinary chat still receives process
+instructions; the graph runs through **Run process**.
+
+For escalation only when uncertain, instruct an assessment step to output
+`NEEDS_DECISION` or `DECIDED`. Connect the first marker to the consultation and
+the second directly to the continuation; connect the consultation to that same
+continuation. Conditions match exact, case-sensitive text. Bot selection respects
+the worker's peer access; revoked access blocks dispatch. Advice uses the selected
+bot's own role, project context and normal permissions.
+
+```sh
+pnpm exec vitest run server/bot-process-consultation.e2e.test.ts
+OMB_UI_EVIDENCE_DIR=.omb-scratch/ask-bot-evidence pnpm exec vitest run scripts/testing/control-omb-ui.e2e.test.ts -t 'configures a process step'
+```
+
+The scripted fixture checks worker → Chief → worker turns, conditional routing,
+answer handoff and access revocation. The renderer check selects Chef, saves,
+runs and inspects the returned answer, with desktop and phone screenshots.
+Both use isolated homes and fake engines, without contacting paid models.
+
+The main renderer check also covers native skill controls in **Design bot → Skills** and
 **Profile → Library → Skills**. Disable all must turn off every listed skill;
 enabling one must leave the others off. Reloading must preserve the selected
 skill. Desktop and phone screenshots check both surfaces and horizontal overflow.

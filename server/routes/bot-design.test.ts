@@ -48,7 +48,8 @@ async function serve(
   if (!reuse) folders.push(dataDir);
   const route = createBotDesignRoutes({
     dataDir,
-    available: (id) => id === "scout",
+    available: (id) => id === "scout" || id === "chief",
+    consultants: () => [{ id: "chief", name: "Chef" }],
     run: async () => "done",
     interrupt: async () => {},
     activity: () => [],
@@ -290,4 +291,76 @@ it("skips conditional branches and dependent joins after a failure", async () =>
   await vi.waitFor(async () => expect((await app.get()).runs[0]?.status).toBe("failed"));
   expect((await app.get()).runs[0]?.steps.map((step) => step.status)).toEqual(["completed", "skipped", "failed", "skipped"]);
   expect(run).toHaveBeenCalledTimes(2);
+});
+
+it("asks a reachable Chief in its own thread and returns its answer to the worker", async () => {
+  const calls: { bot: string; prompt: string; thread?: string }[] = [];
+  const activity = vi.fn(() => []);
+  const app = await serve({ activity, run: async (bot, prompt, opened, thread) => {
+    calls.push({ bot, prompt, thread });
+    opened(thread ?? `${bot}-${calls.length}`);
+    return bot === "chief" ? "Choose option B: reversible migration." : "NEEDS_DECISION";
+  } });
+  const process = { ...design, steps: [design.steps[0], { id: "ask", title: "Ask Chef", instruction: "Which migration should I use?", askBotId: "chief" }, design.steps[1]] };
+  expect((await app.request("", "PUT", process)).status).toBe(200);
+  await app.request("/run", "POST", { input: "Migrate the project" });
+  await vi.waitFor(async () => expect((await app.get()).runs[0]?.status).toBe("completed"));
+  expect(calls.map(call => call.bot)).toEqual(["scout", "chief", "scout"]);
+  expect(calls[1]?.thread).toBeUndefined();
+  expect(calls[1]?.prompt).toContain("Which migration should I use?");
+  expect(calls[1]?.prompt).toContain("NEEDS_DECISION");
+  expect(calls[1]?.prompt).not.toContain("Who I am: UI auditor");
+  expect(calls[2]?.thread).toBe("scout-1");
+  expect(calls[2]?.prompt).toContain("Choose option B: reversible migration.");
+  const completed = (await app.get()).runs[0]!;
+  expect(completed.steps[1]).toMatchObject({ botId: "chief", threadId: "chief-2", output: "Choose option B: reversible migration." });
+  expect(activity).toHaveBeenCalledWith("chief", "chief-2");
+});
+
+it("rejects self or unreachable consultation targets and rechecks reach before dispatch", async () => {
+  let reachable = true;
+  const run = vi.fn(async () => "done");
+  const app = await serve({ run, consultants: () => reachable ? [{ id: "chief", name: "Chef" }] : [] });
+  for (const askBotId of ["scout", "missing"])
+    expect((await app.request("", "PUT", { ...design, steps: [{ ...design.steps[0], askBotId }] })).status).toBe(400);
+  expect((await app.request("", "PUT", { ...design, steps: [{ ...design.steps[0], askBotId: "chief" }] })).status).toBe(200);
+  reachable = false;
+  await app.request("/run", "POST", { input: "Consult" });
+  await vi.waitFor(async () => expect((await app.get()).runs[0]?.status).toBe("failed"));
+  expect(run).not.toHaveBeenCalled();
+  expect((await app.get()).runs[0]?.steps[0]?.error).toMatch(/unavailable|reachable/i);
+});
+
+it("stops only the consulted bot's active process conversation", async () => {
+  let release = () => {};
+  const interrupt = vi.fn(async () => release());
+  const run = vi.fn(async (_bot: string, _prompt: string, opened: (id: string) => void) => {
+    opened("chief-advice");
+    await new Promise<void>(resolve => { release = resolve; });
+    return "Advice";
+  });
+  const app = await serve({ run, interrupt });
+  await app.request("", "PUT", { ...design, steps: [{ ...design.steps[0], askBotId: "chief" }, design.steps[1]] });
+  await app.request("/run", "POST", { input: "Consult" });
+  try {
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect((await app.request("/stop", "POST")).status).toBe(200);
+    expect(interrupt).toHaveBeenCalledExactlyOnceWith("chief", "chief-advice");
+    expect((await app.get()).runs[0]?.status).toBe("cancelled");
+    expect(run).toHaveBeenCalledTimes(1);
+  } finally { release(); }
+});
+
+it("only asks for advice when the uncertainty branch matches", async () => {
+  const run = vi.fn(async (_bot: string) => "DECIDED: option A");
+  const app = await serve({ run });
+  await app.request("", "PUT", { ...design, steps: [design.steps[0], { id: "ask", title: "Ask Chef", instruction: "Help decide", askBotId: "chief" }, design.steps[1]], edges: [
+    { from: "inspect", to: "ask", contains: "NEEDS_DECISION" },
+    { from: "inspect", to: "report", contains: "DECIDED:" },
+    { from: "ask", to: "report" },
+  ] });
+  await app.request("/run", "POST", { input: "Decide" });
+  await vi.waitFor(async () => expect((await app.get()).runs[0]?.status).toBe("completed"));
+  expect((await app.get()).runs[0]?.steps[1]?.status).toBe("skipped");
+  expect(run.mock.calls.map(call => call[0])).toEqual(["scout", "scout"]);
 });

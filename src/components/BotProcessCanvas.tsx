@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { Check, GripVertical, Loader2 } from "lucide-react";
-import { botProcessWorkflow, type BotDesign, type BotProcessRun } from "../../shared/bot-design";
+import { botProcessWorkflow, type BotDesign, type BotProcessRun, type BotProcessConsultant } from "../../shared/bot-design";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 
@@ -31,8 +31,9 @@ export function arrangeProcess(design: BotDesign): BotDesign["steps"] {
   });
 }
 
-export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onConnect, onConnecting, onChange, onEdge, run, empty, expanded = false, onOpen }: {
+export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onConnect, onConnecting, onChange, onEdge, run, empty, expanded = false, onOpen, consultants = [] }: {
   design: BotDesign;
+  consultants?: BotProcessConsultant[];
   selectedId: string;
   connecting: string | null;
   onSelect(id: string): void;
@@ -94,7 +95,8 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
               onPointerUp={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}><GripVertical size={14} /></button>
             <button type="button" aria-pressed={selectedId === step.id} aria-current={status === "running" ? "step" : undefined} aria-label={t("design.selectStep", { number: index + 1, title: step.title || t("design.stepTitlePlaceholder") })} className="h-full w-full rounded-xl px-3 py-5 text-left hover:bg-control focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onSelect(step.id)}>
               <span className="mr-5 flex items-center gap-2 text-[13px] font-medium"><span className="text-ink-secondary">{index + 1}.</span><span className="truncate">{step.title || t("design.stepTitlePlaceholder")}</span>{status === "running" && <Loader2 size={14} className="shrink-0 animate-spin text-accent motion-reduce:animate-none" />}{status === "completed" && <Check size={14} className="shrink-0 text-success" />}</span>
-              <span className="mt-2 line-clamp-2 break-words text-[12px] leading-4 text-ink-secondary">{step.instruction || t("design.stepInstructionPlaceholder")}</span>
+              {step.askBotId && <span className="mt-1 block truncate text-[11px] font-medium text-accent-text">{t("design.askingBot", { name: consultants.find((bot) => bot.id === step.askBotId)?.name ?? step.askBotId })}</span>}
+              <span className={`${step.askBotId ? "mt-1 line-clamp-1" : "mt-2 line-clamp-2"} break-words text-[12px] leading-4 text-ink-secondary`}>{step.instruction || t("design.stepInstructionPlaceholder")}</span>
               {status && <span className={`mt-1 block text-[11px] ${status === "failed" ? "text-danger" : status === "running" ? "text-accent" : "text-ink-secondary"}`}>{t(processStatusKeys[status])}</span>}
             </button>
             <button type="button" aria-label={t("design.connectFrom", { number: index + 1 })} aria-pressed={connecting === step.id} className="absolute -bottom-3 left-1/2 z-10 h-6 -translate-x-1/2 touch-none rounded-full border border-accent bg-card px-3 text-[11px] text-accent-text hover:bg-control focus-visible:outline-2 focus-visible:outline-accent"
