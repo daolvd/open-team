@@ -1,12 +1,14 @@
 export type WorkflowNode = { id: string; botId: string; instruction: string };
+/** A connection is unconditional, an exact output substring, or an AI-evaluated instruction. */
+export type WorkflowEdge = { from: string; to: string; contains?: string; condition?: string };
 export type Workflow = {
   nodes: WorkflowNode[];
-  edges: { from: string; to: string; contains?: string }[];
+  edges: WorkflowEdge[];
 };
 export type WorkflowResult =
   | { status: "completed"; result: string }
   | { status: "failed"; error: string }
-  | { status: "skipped" };
+  | { status: "skipped"; reason?: string };
 
 export function validateWorkflow(workflow: Workflow): void {
   const nodes = new Set(workflow.nodes.map((node) => node.id));
@@ -20,6 +22,10 @@ export function validateWorkflow(workflow: Workflow): void {
       throw new Error("Edge references unknown node");
     if (edge.contains !== undefined && !edge.contains.trim())
       throw new Error("Edge condition must not be empty");
+    if (edge.condition !== undefined && !edge.condition.trim())
+      throw new Error("AI condition must not be empty");
+    if (edge.contains !== undefined && edge.condition !== undefined)
+      throw new Error("Choose one connection condition type");
     const key = JSON.stringify([edge.from, edge.to]);
     if (edges.has(key)) throw new Error("Duplicate edge");
     edges.add(key);
@@ -45,6 +51,7 @@ export async function executeWorkflow(
     node: WorkflowNode,
     inputs: { nodeId: string; result: string }[],
   ) => Promise<string>,
+  evaluate?: (edge: WorkflowEdge, output: string) => Promise<boolean>,
 ): Promise<Record<string, WorkflowResult>> {
   validateWorkflow(workflow);
   const tasks = new Map<string, Promise<WorkflowResult>>();
@@ -58,18 +65,22 @@ export async function executeWorkflow(
     ).then(async (results): Promise<WorkflowResult> => {
       if (results.some((result) => result.status === "failed"))
         return { status: "skipped" };
-      const inputs = results.flatMap((result, index) => {
-        const edge = predecessors[index]!;
-        if (
-          result.status !== "completed" ||
-          (edge.contains !== undefined &&
-            !result.result.includes(edge.contains))
-        )
-          return [];
-        return [{ nodeId: edge.from, result: result.result }];
-      });
-      if (predecessors.length && !inputs.length) return { status: "skipped" };
       try {
+        const inputs: { nodeId: string; result: string }[] = [];
+        for (const [index, result] of results.entries()) {
+          if (result.status !== "completed") continue;
+          const edge = predecessors[index]!;
+          if (edge.contains !== undefined && !result.result.includes(edge.contains)) continue;
+          if (edge.condition !== undefined) {
+            if (!evaluate) throw new Error("AI condition evaluator is unavailable");
+            if (!await evaluate(edge, result.result)) continue;
+          }
+          inputs.push({ nodeId: edge.from, result: result.result });
+        }
+        if (predecessors.length && !inputs.length) return {
+          status: "skipped",
+          reason: "No incoming condition matched a completed step. Check the connection conditions.",
+        };
         return { status: "completed", result: await run(node, inputs) };
       } catch (error) {
         return {
@@ -104,6 +115,16 @@ export type WorkflowRun = {
     string,
     (WorkflowResult | { status: "running" }) & { threadId?: string }
   >;
+  routing?: {
+    from: string;
+    to: string;
+    condition: string;
+    status: "running" | "completed" | "failed";
+    threadId?: string;
+    matched?: boolean;
+    reason?: string;
+    error?: string;
+  }[];
   summary?: string;
   summaryThreadId?: string;
   error?: string;

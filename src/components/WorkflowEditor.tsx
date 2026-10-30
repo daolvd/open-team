@@ -5,6 +5,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { openBotSettings } from "./bot-panel/panel-link";
 import type {
   WorkflowDocument,
+  WorkflowEdge,
   WorkflowRun,
   WorkflowTask,
   WorkflowTelegramStatus,
@@ -113,6 +114,9 @@ export function WorkflowEditor({
   function change(next: WorkflowDocument) {
     setWorkflow(next);
     setDirty(true);
+  }
+  function changeConnection(next: WorkflowEdge) {
+    change({ ...workflow, edges: workflow.edges.map((link, i) => i === edgeIndex ? next : link) });
   }
   function connect(from: string, to: string) {
     if (
@@ -498,7 +502,9 @@ export function WorkflowEditor({
                                   setSelected(null);
                                 }}
                               >
-                                {link.contains
+                                {link.condition !== undefined
+                                  ? `AI: ${link.condition}`
+                                  : link.contains
                                   ? `Contains: ${link.contains}`
                                   : "Always"}
                               </button>
@@ -753,32 +759,51 @@ export function WorkflowEditor({
                       <h2 className="text-sm font-semibold">
                         Connection condition
                       </h2>
+                      <label className="block space-y-2 text-xs">
+                        <span>Routing rule</span>
+                        <select
+                          className={`${control} w-full`}
+                          value={edge.condition !== undefined ? "ai" : edge.contains !== undefined ? "text" : "always"}
+                          onChange={event => changeConnection({
+                            from: edge.from, to: edge.to,
+                            ...(event.target.value === "ai" ? { condition: edge.condition ?? edge.contains ?? "" }
+                              : event.target.value === "text" ? { contains: edge.contains ?? edge.condition ?? "" } : {}),
+                          })}
+                        >
+                          <option value="always">Always run</option>
+                          <option value="ai">AI condition</option>
+                          <option value="text">Exact output text</option>
+                        </select>
+                      </label>
                       <p className="text-xs leading-relaxed text-ink-secondary">
-                        Leave empty to always pass the result. Otherwise the
-                        preceding result must contain this exact text (case
-                        sensitive).
+                        {edge.condition !== undefined
+                          ? "The preceding bot evaluates your condition using the original request and its result. Its decision and reason appear in Latest run. Each check uses an extra AI turn."
+                          : edge.contains !== undefined
+                            ? "Only runs if the preceding result contains this exact text (case sensitive). For instructions such as ‘requests about drawing or design’, choose AI condition."
+                            : "Passes each completed result to the next bot."}
                       </p>
-                      <input
-                        aria-label="Required text"
-                        className={`${control} w-full`}
-                        value={edge.contains ?? ""}
-                        onChange={(e) =>
-                          change({
-                            ...workflow,
-                            edges: workflow.edges.map((link, i) =>
-                              i === edgeIndex
-                                ? {
-                                    from: link.from,
-                                    to: link.to,
-                                    ...(e.target.value
-                                      ? { contains: e.target.value }
-                                      : {}),
-                                  }
-                                : link,
-                            ),
-                          })
-                        }
-                      />
+                      {edge.condition !== undefined ? (
+                        <label className="block space-y-2 text-xs">
+                          <span>AI condition</span>
+                          <textarea
+                            className={`${control} min-h-24 w-full`}
+                            maxLength={2000}
+                            value={edge.condition}
+                            placeholder="When the request involves drawing or UI design"
+                            onChange={event => changeConnection({ from: edge.from, to: edge.to, condition: event.target.value })}
+                          />
+                        </label>
+                      ) : edge.contains !== undefined ? (
+                        <label className="block space-y-2 text-xs">
+                          <span>Required text</span>
+                          <input
+                            className={`${control} w-full`}
+                            maxLength={500}
+                            value={edge.contains}
+                            onChange={event => changeConnection({ from: edge.from, to: edge.to, contains: event.target.value })}
+                          />
+                        </label>
+                      ) : null}
                       <button
                         className={`${control} text-danger`}
                         onClick={() => {
@@ -875,6 +900,28 @@ export function WorkflowEditor({
                             )}
                             {result?.status === "failed" && (
                               <p className="mt-1 text-danger">{result.error}</p>
+                            )}
+                            {result?.status === "skipped" && (
+                              <p className="mt-1 text-ink-secondary">
+                                {result.reason || "An upstream step failed or no connection condition matched. Check the connection rules."}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {latest.routing?.map(decision => {
+                        const source = latest.workflow.nodes.find(n => n.id === decision.from);
+                        const destination = latest.workflow.nodes.find(n => n.id === decision.to);
+                        return (
+                          <div key={`${decision.from}:${decision.to}`} className="space-y-1 border-t border-hairline/60 pt-3 text-xs">
+                            <p className="font-medium">
+                              {bots.find(b => b.id === source?.botId)?.name} → {bots.find(b => b.id === destination?.botId)?.name}
+                            </p>
+                            <p className="text-ink-secondary">{decision.condition}</p>
+                            <p>{decision.status === "completed" ? decision.matched ? "Condition matched" : "Condition not matched" : decision.status === "running" ? "Checking condition…" : "Condition check failed"}</p>
+                            <p className={decision.error ? "text-danger" : "text-ink-secondary"}>{decision.error || decision.reason}</p>
+                            {source && decision.threadId && (
+                              <button className="text-accent-text underline" onClick={() => conversation(source.botId, decision.threadId!)}>Open condition check</button>
                             )}
                           </div>
                         );

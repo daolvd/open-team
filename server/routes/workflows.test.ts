@@ -117,6 +117,48 @@ async function serve(
       }),
   };
 }
+it.each([true, false])("routes semantic conditions (%s) using task context and stores the decision", async matched => {
+  const calls: string[] = [];
+  const condition = "Khi yêu cầu liên quan đến vẽ và design";
+  const app = await serve(async (node, prompt, opened, _resume, interaction) => {
+    calls.push(node.id);
+    opened(`thread-${node.id}`);
+    if (node.id.startsWith("condition:")) {
+      expect(node.botId).toBe("a");
+      expect(prompt).toContain(condition);
+      expect(prompt).toContain("Implement feature");
+      expect(prompt).toContain("UI Vườn Mèo");
+      expect(interaction).toBeUndefined();
+      return JSON.stringify({ matched, reason: matched ? "Yêu cầu thiết kế UI" : "Không phải yêu cầu thiết kế" });
+    }
+    if (node.id === "c") expect(prompt).toContain("UI Vườn Mèo");
+    return node.id === "summary" ? "Kết quả cho người dùng" : "UI Vườn Mèo";
+  });
+  expect((await app.save({ ...workflow, nodes: workflow.nodes.filter(n => ["a", "c"].includes(n.id)), edges: [{ from: "a", to: "c", condition }] })).status).toBe(200);
+  await app.start();
+  await expect.poll(async () => (await app.get()).runs[0]?.status).toBe("completed");
+  const run = (await app.get()).runs[0]!;
+  expect(calls).toEqual(matched ? ["a", "condition:a:c", "c", "summary"] : ["a", "condition:a:c", "summary"]);
+  expect(run.routing).toEqual([expect.objectContaining({ from: "a", to: "c", status: "completed", matched, reason: expect.any(String), threadId: "thread-condition:a:c" })]);
+  expect(run.steps.c?.status).toBe(matched ? "completed" : "skipped");
+  expect(run.summary).toBe("Kết quả cho người dùng");
+});
+
+it("reports malformed AI decisions as failures instead of silently skipping a bot", async () => {
+  const calls: string[] = [];
+  const app = await serve(async node => {
+    calls.push(node.id);
+    return node.id.startsWith("condition:") ? "I might choose yes" : "UI result";
+  });
+  await app.save({ ...workflow, nodes: workflow.nodes.filter(n => ["a", "c"].includes(n.id)), edges: [{ from: "a", to: "c", condition: "Needs design" }] });
+  await app.start();
+  await expect.poll(async () => (await app.get()).runs[0]?.status).toBe("failed");
+  const run = (await app.get()).runs[0]!;
+  expect(calls).not.toContain("c");
+  expect(run.steps.c).toMatchObject({ status: "failed", error: expect.stringMatching(/decision/i) });
+  expect(run.routing?.[0]).toMatchObject({ status: "failed", error: expect.stringMatching(/decision/i) });
+});
+
 it("persists the graph, runs roots concurrently, routes matching text and produces a lead summary", async () => {
   const calls: string[] = [];
   let release!: () => void;
@@ -139,7 +181,7 @@ it("persists the graph, runs roots concurrently, routes matching text and produc
     .toBe("completed");
   const { runs } = await app.get();
   expect(calls).toEqual(["a", "b", "c", "summary"]);
-  expect(runs[0]?.steps.d).toEqual({ status: "skipped" });
+  expect(runs[0]?.steps.d).toMatchObject({ status: "skipped", reason: expect.stringMatching(/condition/) });
   expect(runs[0]?.steps.c).toMatchObject({
     status: "completed",
     threadId: "thread-c",

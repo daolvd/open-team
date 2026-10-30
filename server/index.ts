@@ -12307,9 +12307,22 @@ const workflowRoutes = createWorkflowRoutes({
       subscribe: check => store.onChange(change => {
         if ((change.type === "message" || change.type === "message.patch") && change.threadId === threadId) check();
       }),
-      turn: text => new Promise<HostTurnResult>((resolve, reject) => {
-        void startTurn(bot.id, text, { threadId, onDispatchError: message => reject(new Error(message)), onSettled: resolve }).catch(reject);
-      }),
+      turn: async text => {
+        const deadline = Date.now() + 120_000;
+        while (botAtThreadCapacity(bot.id, threadId)) {
+          if (Date.now() >= deadline) throw new Error("Workflow bot is still busy. Wait for its current conversations and retry.");
+          await new Promise<void>(resolve => setTimeout(resolve, 100));
+        }
+        const outcome = await new Promise<HostTurnResult>((resolve, reject) => {
+          void startTurn(bot.id, text, { threadId, onDispatchError: message => reject(new Error(message)), onSettled: resolve }).catch(reject);
+        });
+        const releaseDeadline = Date.now() + 30_000;
+        while (threadBusy(bot.id, threadId)) {
+          if (Date.now() >= releaseDeadline) throw new Error("The workflow turn has not released its conversation. Stop it before retrying.");
+          await new Promise<void>(resolve => setTimeout(resolve, 50));
+        }
+        return outcome;
+      },
       answer: async (message, answer) => {
         const card = store.messagesFor(threadId).find(row => row.id === message.id)?.card;
         const auth: RequestAuth = { kind: "loopback", scopes: ["admin", "client"] };

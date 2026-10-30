@@ -5,8 +5,19 @@
 Open **Team map → Workflow**. Add bots as steps, drag their headers to arrange
 them, then drag **Output** onto a destination step. The step inspector also
 offers a **Next step → Connect** control and numeric positions for keyboard use.
-Select a connection to set **Required text**; an empty field always passes the
-result. Text matching is case sensitive.
+Select a connection and choose a **Routing rule**:
+
+- **Always run** passes the completed result to the next bot.
+- **AI condition** interprets an instruction such as “requests about drawing or
+  design” against the original request and preceding result. The preceding bot
+  checks it in a separate conversation. **Latest run** records the decision,
+  explanation and conversation link. Each check uses an additional AI turn.
+- **Exact output text** requires a case-sensitive substring in the preceding
+  output. Existing `contains` connections keep this behavior. To use a saved
+  natural-language instruction, switch it to **AI condition** and save.
+
+A malformed AI decision fails the destination step instead of silently skipping
+it. A join waits for its predecessors and receives only matching results.
 
 Choose a **Lead bot**, write each step's instruction, and save. **Configure bot**
 opens that bot's existing identity, standing instructions, engine, project
@@ -77,8 +88,9 @@ responses; select a configured real engine for AI conversation.
 Telegram receives the task receipt, starts, every completed step's text output,
 skipped steps, failures and final summary. App-created tasks and manual workflow
 runs also report there. Long messages are split into chunks. Conversations and
-task results remain available in the app if Telegram delivery fails; attachments
-and live tool streams are not forwarded. Replies from the bot are not task input.
+task results remain available in the app if Telegram delivery fails. Supported
+files and phone forms are forwarded as described in [Telegram verification](telegram.md).
+Live tool streams are not forwarded. Replies from the bot are not task input.
 
 The bridge uses the [Telegram Bot API](https://core.telegram.org/bots/api)'s
 long polling; no public callback URL is needed. An existing webhook is refused,
@@ -88,6 +100,11 @@ or is re-enabled are discarded. The token is saved separately in
 responses. **Disconnect Telegram** removes this connection file.
 
 ## Isolated verification
+
+Run `pnpm exec vitest run shared/workflow.test.ts server/workflow-condition.test.ts server/routes/workflows.test.ts server/workflow-routing.e2e.test.ts`.
+The routing end-to-end test launches an isolated server with scripted CLI bots,
+checks the cat-game design handoff to bot 2, then verifies an unrelated request
+skips that bot with a saved explanation. It does not contact a real AI or Telegram.
 
 ```sh
 pnpm exec vitest run shared/workflow.test.ts server/routes/workflows.test.ts server/workflow-telegram.test.ts server/setup-import.test.ts
