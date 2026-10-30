@@ -518,7 +518,7 @@ import {
 } from "./turn-dispatch-guard.ts";
 import { createGracefulShutdown } from "./graceful-shutdown.ts";
 import { acquireDataDirLeaseForProcess } from "./data-dir-lease.ts";
-import { createWorkspaceAccess, describeEdition, editionForSettings, editionStatus, entitled, hostedWorkspaceConfiguration, hostedWorkspaceConfigured, licenseWarning, sharedWorkspaceFullAccessConfigured, loadEnterpriseLayer, workspaceMembership, type WorkspaceAccess } from "./enterprise.ts";
+import { createWorkspaceAccess, describeEdition, editionForSettings, editionStatus, entitled, hostedWorkspaceConfiguration, hostedWorkspaceConfigured, licenseWarning, sharedWorkspaceFullAccessConfigured, loadEnterpriseLayer, loadOpenTeamLayer, workspaceMembership, type WorkspaceAccess } from "./enterprise.ts";
 import { environmentDescriptor, loadEnvironmentId, serverVersion } from "./environment.ts";
 import { WorkspaceBackupMaintenance } from "./workspace-backup-maintenance.ts";
 import { createWorkspaceBackupRoutes, isWorkspaceBackupSessionControl } from "./workspace-backup-http.ts";
@@ -12344,12 +12344,17 @@ ROUTES.push(workflowRoutes);
 ROUTES.push(createBotDesignRoutes({
   dataDir: DATA_DIR,
   available: (id) => { const bot = store.bot(id); assertBotHere(bot); return Boolean(bot && !bot.hidden); },
-  run: async (botId, prompt, opened, threadId) => {
+  run: async (botId, prompt, opened, threadId, signal) => {
     const bot = store.bot(botId);
     assertBotHere(bot);
     if (!bot || bot.hidden) throw new Error("Bot unavailable");
     const task = (threadId && store.taskByThread(bot.id, threadId)) || store.createTask(bot.id, "Process run", false);
     if (!task) throw new Error("Cannot open process conversation");
+    while (botAtThreadCapacity(bot.id, task.threadId)) {
+      signal?.throwIfAborted();
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
+    signal?.throwIfAborted();
     opened(task.threadId);
     const result = await new Promise<string>((resolve, reject) => {
       void startTurn(bot.id, prompt, {
@@ -15728,7 +15733,7 @@ upgrades.attach(server, handleRequest);
 moveFreeze.hold(() => calendarCalls.start(), () => calendarCalls.stop());
 
 // Resolve the edition before accepting requests so /api/edition is never a guess.
-console.log(describeEdition(await loadEnterpriseLayer()));
+console.log(describeEdition(process.env.OMB_ENTERPRISE_DIR ? await loadEnterpriseLayer() : loadOpenTeamLayer(DATA_DIR)));
 const startupLicenseWarning = licenseWarning(editionStatus());
 if (startupLicenseWarning) console.warn(startupLicenseWarning);
 console.log(LOOPBACK.trust === "service"

@@ -24,7 +24,7 @@
   "include": [
     "server",
     "companion",
-    "enterprise",
+    "extensions",
     "connector"
   ],
   "exclude": [

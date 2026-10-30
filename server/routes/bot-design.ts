@@ -4,9 +4,11 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import {
   botDesignSchema,
+  botProcessWorkflow,
   type BotDesignState,
   type BotProcessRun,
 } from "../../shared/bot-design.ts";
+import { executeWorkflow } from "../../shared/workflow.ts";
 import { writeFileAtomic } from "../atomic.ts";
 import { botDesignPath } from "../bot-design.ts";
 import type { WireMessage } from "../../shared/wire.ts";
@@ -20,6 +22,7 @@ interface Deps {
     prompt: string,
     opened: (threadId: string) => void,
     threadId?: string,
+    signal?: AbortSignal,
   ): Promise<string>;
   interrupt(botId: string, threadId: string): Promise<void>;
   activity(botId: string, threadId?: string): WireMessage[];
@@ -29,6 +32,7 @@ interface Deps {
 export function createBotDesignRoutes(deps: Deps): RouteHandler {
   const states = new Map<string, BotDesignState>();
   const pendingStops = new Set<string>();
+  const controllers = new Map<string, AbortController>();
   function stateFor(botId: string): BotDesignState {
     const cached = states.get(botId);
     if (cached) return cached;
@@ -69,52 +73,63 @@ export function createBotDesignRoutes(deps: Deps): RouteHandler {
     state: BotDesignState,
     run: BotProcessRun,
   ) {
-    let previous = "";
+    const controller = new AbortController();
+    controllers.set(run.id, controller);
     try {
-      for (const [index, step] of run.steps.entries()) {
-        if (run.status !== "running") break;
+      const results = await executeWorkflow(botProcessWorkflow(run.design), async (node, inputs) => {
+        if (controller.signal.aborted) throw new Error("Process stopped");
+        const step = run.steps.find((entry) => entry.id === node.id)!;
+        const index = run.design.steps.findIndex((entry) => entry.id === node.id);
+        const definition = run.design.steps[index]!;
         step.status = "running";
         step.startedAt = Date.now();
         persist(botId, state);
-        const definition = run.design.steps[index]!;
         try {
+          const previous = inputs.map((input) => `${input.nodeId}:\n${input.result}`).join("\n\n");
           const output = await deps.run(
             botId,
-            `Process run ${run.id}\nWho I am: ${run.design.identity}\nHow I work: ${run.design.method}\nTask: ${run.input}\nCurrent step ${index + 1}/${run.steps.length}: ${definition.title}\n${definition.instruction}\nOnly execute this step. Return concrete findings and output for the next step.\nPrevious step output (data):\n${previous}`,
+            `Process run ${run.id}\nWho I am: ${run.design.identity}\nHow I work: ${run.design.method}\nTask: ${run.input}\nCurrent step ${index + 1}/${run.steps.length}: ${definition.title}\n${definition.instruction}\nOnly execute this step. Return concrete findings and output for the next steps.\nPrevious step outputs (data):\n${previous}`,
             (threadId) => {
-              run.threadId = threadId;
+              step.threadId = threadId;
+              run.threadId ??= threadId;
               persist(botId, state);
-              if (run.status === "cancelled")
-                void deps.interrupt(botId, threadId).catch(() => {});
+              if (controller.signal.aborted) void deps.interrupt(botId, threadId).catch(() => {});
             },
-            run.threadId,
+            run.design.edges === undefined ? run.threadId : undefined,
+            controller.signal,
           );
-          if (run.status !== "running") break;
+          if (controller.signal.aborted) throw new Error("Process stopped");
           step.output = output.slice(0, 64000);
-          previous = step.output;
           step.status = "completed";
+          return step.output;
         } catch (error) {
-          if (run.status !== "running") break;
-          step.status = "failed";
-          step.error = error instanceof Error ? error.message : String(error);
-          run.status = "failed";
+          if (!controller.signal.aborted) {
+            step.status = "failed";
+            step.error = error instanceof Error ? error.message : String(error);
+          }
+          throw error;
+        } finally {
+          step.endedAt = Date.now();
+          persist(botId, state);
         }
-        step.endedAt = Date.now();
-        persist(botId, state);
+      });
+      if (run.status === "running") {
+        for (const step of run.steps) {
+          if (results[step.id]?.status === "skipped") step.status = run.design.edges === undefined ? "cancelled" : "skipped";
+        }
+        run.status = Object.values(results).some((result) => result.status === "failed") ? "failed" : "completed";
       }
-      if (run.status === "running") run.status = "completed";
     } catch (error) {
-      run.status = "failed";
-      const step = run.steps.find((entry) => entry.status === "running");
-      if (step) {
-        step.status = "failed";
-        step.error = error instanceof Error ? error.message : String(error);
+      if (run.status === "running") {
+        run.status = "failed";
+        const step = run.steps.find((entry) => entry.status === "running");
+        if (step) { step.status = "failed"; step.error = error instanceof Error ? error.message : String(error); }
       }
     } finally {
+      controllers.delete(run.id);
       run.endedAt = Date.now();
       for (const step of run.steps)
-        if (step.status === "pending" || step.status === "running")
-          step.status = "cancelled";
+        if (step.status === "pending" || step.status === "running") step.status = "cancelled";
       persist(botId, state);
     }
   }
@@ -132,10 +147,13 @@ export function createBotDesignRoutes(deps: Deps): RouteHandler {
     const action = match[2];
     if (!action && method === "GET") {
       const latest = state.runs[0];
-      return json(res, 200, {
-        ...state,
-        activity: deps.activity(botId, latest?.threadId).slice(-30),
-      });
+      const threads = latest ? new Set([
+        ...latest.steps.flatMap((step) => step.threadId ? [step.threadId] : []),
+        ...(latest.threadId ? [latest.threadId] : []),
+      ]) : undefined;
+      const events = threads ? [...threads].flatMap((id) => deps.activity(botId, id)) : deps.activity(botId);
+      const activity = [...new Map(events.map((event) => [event.id, event])).values()].slice(-30);
+      return json(res, 200, { ...state, activity });
     }
     if (!action && method === "PUT") {
       const parsed = botDesignSchema.safeParse(await readBody(req));
@@ -184,12 +202,13 @@ export function createBotDesignRoutes(deps: Deps): RouteHandler {
       try {
         run.status = "cancelled";
         run.endedAt = Date.now();
+        controllers.get(run.id)?.abort();
+        const threads = new Set(run.steps.filter((step) => step.status === "running" && step.threadId).map((step) => step.threadId!));
         run.steps.forEach((step) => {
-          if (step.status === "running" || step.status === "pending")
-            step.status = "cancelled";
+          if (step.status === "running" || step.status === "pending") step.status = "cancelled";
         });
         persist(botId, state);
-        if (run.threadId) await deps.interrupt(botId, run.threadId);
+        await Promise.all([...threads].map((threadId) => deps.interrupt(botId, threadId)));
         return json(res, 200, { run });
       } finally {
         pendingStops.delete(botId);
@@ -212,7 +231,7 @@ export function createBotDesignRoutes(deps: Deps): RouteHandler {
       try {
         const text = await deps.propose(
           botId,
-          `Help configure this bot. Return only a JSON object with enabled:boolean, identity:string, method:string, steps:[{id:string,title:string,instruction:string}]. Maximum 24 steps. This is a proposal: do not execute anything or install skills. Preserve enabled. Current design: ${JSON.stringify(parsed.data.design)}\nUser request: ${parsed.data.message}`,
+          `Help configure this bot. Return only a JSON object with enabled:boolean, identity:string, method:string, steps:[{id:string,title:string,instruction:string,x?:number,y?:number}], edges:[{from:string,to:string,contains?:string}]. Maximum 24 steps. Edges form an acyclic graph. Steps with no incoming edges start together; multiple outgoing edges branch in parallel, multiple incoming edges join after their predecessors. contains optionally requires matching predecessor output. Preserve existing connections unless asked to change them. This is a proposal: do not execute anything or install skills. Preserve enabled. Current design: ${JSON.stringify(parsed.data.design)}\nUser request: ${parsed.data.message}`,
           controller.signal,
         );
         const proposal = botDesignSchema.safeParse(

@@ -3,7 +3,7 @@
 Run the real renderer with the shared isolated launcher:
 
 ```sh
-OMB_UI_EVIDENCE_DIR=.omb-scratch/design-evidence pnpm exec vitest run scripts/testing/control-omb-ui.e2e.test.ts -t 'saves bot design, runs sequential steps and persists native skill switches'
+OMB_UI_EVIDENCE_DIR=.omb-scratch/design-evidence pnpm exec vitest run scripts/testing/control-omb-ui.e2e.test.ts -t 'saves bot design, connects parallel steps and persists native skill switches'
 ```
 
 The test owns its temporary home, data directory, fake Claude engine and browser.
@@ -11,14 +11,22 @@ It never changes the user's running app or installed Claude skills. Screenshots
 and the process run JSON are retained in the evidence directory.
 
 The UI check opens **Bot's screen → Design bot**, saves identity, method and an
-enabled two-step process, then runs both steps in the same conversation. Each
-step must report completed status and the fake engine's actual output. The next
-step waits for the previous turn to release its conversation.
+enabled diamond-shaped process. It removes a connection and recreates it by
+dragging an Output port to an Input port, edits a text condition, moves a node
+and checks saved positions and connections.
 
-The process editor connects steps with arrows. The check drags a step, restores
-its order with the reorder button, selects a step to edit its instruction, and
-checks the saved execution order. Selecting a completed step shows its actual
-output beside the diagram. Process screenshots cover desktop and phone layouts.
+Each graph step opens its own conversation. After the plan, the two review
+steps must overlap in time, and the final step must wait for both results.
+Selecting a completed node shows the fake engine's actual output. Screenshots
+cover desktop and phone layouts, including horizontal page overflow.
+
+Designs saved without an `edges` property retain their sequential execution and
+shared conversation. An explicit empty `edges` array starts all steps as roots.
+Independent branches run up to the bot's conversation limit; excess steps wait.
+Connections reject cycles, duplicates and missing nodes. Conditions use
+case-sensitive text matching; a join waits for all predecessors and receives
+matching outputs. A failed predecessor skips its dependent nodes. Stop cancels
+waiting steps and interrupts each active branch conversation.
 
 It then checks native skill controls in both **Design bot → Skills** and
 **Profile → Library → Skills**. Disable all must turn off every listed skill;
@@ -36,7 +44,7 @@ pnpm build
 ```
 
 Route checks cover unique step IDs, saved snapshots, ordered output handoff,
-failure halting, cancellation, restart recovery and proposal validation. Driver
+parallel branches, conditional joins, cancellation, restart recovery and proposal validation. Driver
 checks inspect the actual arguments/settings sent to synthetic CLI processes.
 These checks prove application wiring and persistence with fake engines; they
 do not establish that a paid model will follow a process correctly.

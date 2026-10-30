@@ -1,0 +1,8 @@
+{
+  "name": "Open Team",
+  "features": {
+    "whitelabel": true,
+    "budgets": true,
+    "billing": true
+  }
+}

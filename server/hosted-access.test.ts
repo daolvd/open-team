@@ -105,7 +105,7 @@ beforeAll(async () => {
   writeFileSync(join(data, "config.json"), JSON.stringify({ signIn: { admins: [EMAIL] }, instances: INSTANCES }));
   writeFileSync(join(layer, "server", "index.ts"), `
     import { readFileSync } from 'node:fs';
-    import { createWorkspaceAccess as create } from ${JSON.stringify(pathToFileURL(join(ROOT, "enterprise/server/workspace-access.ts")).href)};
+    import { createWorkspaceAccess as create } from ${JSON.stringify(pathToFileURL(join(ROOT, "server/testing/fake-workspace-access.ts")).href)};
     export function register() {
       const { license } = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
       if (license.invalid) throw new Error('invalid fixture license');

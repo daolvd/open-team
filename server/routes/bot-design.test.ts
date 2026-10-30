@@ -208,3 +208,86 @@ it("previews assistant changes without saving or enabling the process", async ()
   expect(body.proposal.enabled).toBe(false);
   expect((await app.get()).design.steps).toEqual([]);
 });
+
+const diamond = {
+  ...design,
+  steps: ["start", "left", "right", "join"].map((id) => ({ id, title: id, instruction: `Execute ${id}` })),
+  edges: [
+    { from: "start", to: "left" }, { from: "start", to: "right" },
+    { from: "left", to: "join" }, { from: "right", to: "join" },
+  ],
+};
+
+it("runs sibling steps concurrently in separate threads and waits for both outputs at a join", async () => {
+  const gates = new Map<string, () => void>();
+  const calls: { id: string; prompt: string; thread?: string }[] = [];
+  const app = await serve({
+    run: async (_bot, prompt, opened, thread) => {
+      const id = diamond.steps.find((step) => prompt.includes(step.instruction))!.id;
+      calls.push({ id, prompt, thread });
+      opened(`thread-${id}`);
+      if (id === "left" || id === "right") await new Promise<void>((resolve) => gates.set(id, resolve));
+      return `output-${id}`;
+    },
+  });
+  expect((await app.request("", "PUT", diamond)).status).toBe(200);
+  await app.request("/run", "POST", { input: "Parallel audit" });
+  try {
+    await vi.waitFor(() => expect([...gates.keys()].sort()).toEqual(["left", "right"]));
+    expect(calls.map((call) => call.id)).toEqual(["start", "left", "right"]);
+    gates.get("left")!();
+    await vi.waitFor(async () => expect((await app.get()).runs[0]?.steps[1]?.status).toBe("completed"));
+    expect(calls).toHaveLength(3);
+    gates.get("right")!();
+    await vi.waitFor(async () => expect((await app.get()).runs[0]?.status).toBe("completed"));
+    expect(calls[3]?.prompt).toContain("output-left");
+    expect(calls[3]?.prompt).toContain("output-right");
+    expect(calls.every((call) => call.thread === undefined)).toBe(true);
+    expect((await app.get()).runs[0]?.steps.map((step) => step.threadId)).toEqual(diamond.steps.map((step) => `thread-${step.id}`));
+  } finally {
+    gates.forEach((release) => release());
+  }
+});
+
+it("rejects cycles, missing nodes and duplicate connections", async () => {
+  const app = await serve();
+  for (const edges of [
+    [...diamond.edges, { from: "join", to: "start" }],
+    [{ from: "missing", to: "start" }],
+    [diamond.edges[0], diamond.edges[0]],
+  ]) expect((await app.request("", "PUT", { ...diamond, edges })).status).toBe(400);
+});
+
+it("stops all running branches and never dispatches their join", async () => {
+  const gates = new Map<string, () => void>();
+  const interrupt = vi.fn(async (_bot: string, threadId: string) => { gates.get(threadId)?.(); });
+  const run = vi.fn(async (_bot: string, prompt: string, opened: (thread: string) => void) => {
+    const id = diamond.steps.find((step) => prompt.includes(step.instruction))!.id;
+    opened(id);
+    if (id !== "start") await new Promise<void>((resolve) => gates.set(id, resolve));
+    return id;
+  });
+  const app = await serve({ run, interrupt });
+  await app.request("", "PUT", diamond);
+  await app.request("/run", "POST", { input: "Stop audit" });
+  try {
+    await vi.waitFor(() => expect(gates.size).toBe(2));
+    expect((await app.request("/stop", "POST")).status).toBe(200);
+    expect(interrupt.mock.calls.map((call) => call[1]).sort()).toEqual(["left", "right"]);
+    expect((await app.get()).runs[0]?.status).toBe("cancelled");
+    expect(run).toHaveBeenCalledTimes(3);
+  } finally { gates.forEach((release) => release()); }
+});
+
+it("skips conditional branches and dependent joins after a failure", async () => {
+  const run = vi.fn(async (_bot: string, prompt: string) => {
+    if (prompt.includes("Execute right")) throw new Error("Right failed");
+    return "ok";
+  });
+  const app = await serve({ run });
+  await app.request("", "PUT", { ...diamond, edges: diamond.edges.map((edge) => edge.to === "left" ? { ...edge, contains: "absent" } : edge) });
+  await app.request("/run", "POST", { input: "Conditional audit" });
+  await vi.waitFor(async () => expect((await app.get()).runs[0]?.status).toBe("failed"));
+  expect((await app.get()).runs[0]?.steps.map((step) => step.status)).toEqual(["completed", "skipped", "failed", "skipped"]);
+  expect(run).toHaveBeenCalledTimes(2);
+});

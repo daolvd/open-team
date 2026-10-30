@@ -112,7 +112,7 @@ describe("control-omb ui drives the real renderer", () => {
     if (ownsEvidenceDir) await removeTempDir(evidenceDir);
   });
 
-  run("saves bot design, runs sequential steps and persists native skill switches", async () => {
+  run("saves bot design, connects parallel steps and persists native skill switches", async () => {
     launched = await launch([]);
     const { info } = launched;
     const handle = JSON.parse(readFileSync(info.ui, "utf8")) as UiHandle;
@@ -145,26 +145,36 @@ describe("control-omb ui drives the real renderer", () => {
     await openDesign();
     await ui("type", info.ui, "--name", "Who am I?", "--text", "UI UX Auditor: inspect the current project");
     await ui("type", info.ui, "--name", "How do I work?", "--text", "Use current browser evidence and report actual output and failures.");
-    for (const [index, title] of ["Inspect current UI", "Report findings"].entries()) {
-      await ui("click", info.ui, "--name", "Add process step");
-      await ui("type", info.ui, "--name", `Step ${index + 1} title`, "--text", title);
-      await ui("type", info.ui, "--name", `Step ${index + 1} instruction`, "--text", index ? "Summarize the previous output with actionable fixes." : "Read the current screen and report observations.");
-    }
-    expect((await ui("eval", info.ui, "--js", "document.querySelectorAll('[data-process-connection]').length")).result).toBe(1);
-    await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
-    await browser("drag", '[data-process-step]:last-child [data-process-drag]', '[data-process-step]:first-child button[aria-pressed]');
-    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot).toContain('button "Select step 1: Report findings"');
-    await ui("click", info.ui, "--name", "Move step 1 down");
-    await ui("click", info.ui, "--name", "Select step 1: Inspect current UI");
-    expect((await ui("eval", info.ui, "--js", "document.querySelector('textarea[maxlength=\"8000\"][rows=\"5\"]').value")).result).toBe("Read the current screen and report observations.");
+    await ui("click", info.ui, "--name", "Add parallel example");
+    await browser("eval", "document.querySelector('[data-process-canvas]').scrollIntoView({block:'start'})");
+    expect((await ui("eval", info.ui, "--js", "document.querySelectorAll('[data-process-connection]').length")).result).toBe(4);
+    await browser("click", '[aria-label="Edit connection from Plan to Inspect UI"]');
+    await ui("click", info.ui, "--name", "Remove connection");
+    await browser("eval", "document.querySelector('[data-process-canvas]').scrollIntoView({block:'start'})");
+    await browser("drag", '[aria-label="Connect from step 1"]', '[aria-label="Connect into step 2"]');
+    expect((await ui("eval", info.ui, "--js", "document.querySelectorAll('[data-process-connection]').length")).result).toBe(4);
+    await browser("click", '[aria-label="Edit connection from Plan to Inspect UI"]');
+    await ui("type", info.ui, "--name", "Required text in predecessor output (optional)", "--text", "hello");
+    await ui("click", info.ui, "--name", "Select step 1: Plan");
+    const position = (await ui("eval", info.ui, "--js", `(() => { const r=document.querySelector('[data-process-drag]').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)}; })()`)).result as {x:number;y:number};
+    await browser("mouse", "move", String(position.x), String(position.y));
+    await browser("mouse", "down");
+    await browser("mouse", "move", String(position.x + 60), String(position.y + 20));
+    await browser("mouse", "up");
     await ui("click", info.ui, "--name", "Enable bot process");
     await ui("click", info.ui, "--name", "Save process");
     await expect.poll(async () => (await design() as any).design.enabled).toBe(true);
-    expect((await design() as any).design.steps.map((step: any) => step.title)).toEqual(["Inspect current UI", "Report findings"]);
+    const saved = (await design() as any).design;
+    expect(saved.steps.map((step: any) => step.title)).toEqual(["Plan", "Inspect UI", "Inspect code", "Combine findings"]);
+    expect(saved.steps[0]).toMatchObject({ x: 90, y: 50 });
+    expect(saved.edges).toHaveLength(4);
+    expect(saved.edges.find((edge: any) => edge.to === saved.steps[1].id).contains).toBe("hello");
     mkdirSync(evidenceDir, { recursive: true });
+    await ui("click", info.ui, "--name", "Fit view");
     await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "process-desktop.png"));
     await browser("set", "viewport", "390", "844");
+    await ui("click", info.ui, "--name", "Fit view");
     await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "process-mobile.png"));
     expect((await ui("eval", info.ui, "--js", "document.documentElement.scrollWidth > window.innerWidth")).result).toBe(false);
@@ -178,11 +188,15 @@ describe("control-omb ui drives the real renderer", () => {
     }, { timeout: 45_000 }).not.toBe("running");
     const state = await design() as any;
     expect(state.runs[0].status, JSON.stringify(state.runs[0])).toBe("completed");
-    expect(state.runs[0].steps.map((step: any) => step.status)).toEqual(["completed", "completed"]);
+    expect(state.runs[0].steps.map((step: any) => step.status)).toEqual(["completed", "completed", "completed", "completed"]);
     expect(state.runs[0].steps.every((step: any) => step.output === REPLY)).toBe(true);
+    const times = state.runs[0].steps;
+    expect(Math.max(times[1].startedAt, times[2].startedAt)).toBeLessThan(Math.min(times[1].endedAt, times[2].endedAt));
+    expect(times[3].startedAt).toBeGreaterThanOrEqual(Math.max(times[1].endedAt, times[2].endedAt));
+    expect(new Set(times.map((step: any) => step.threadId)).size).toBe(4);
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 15_000 }).toContain("Completed");
-    await expect.poll(async () => (await ui("eval", info.ui, "--js", "document.querySelector('ol[aria-label=\"Process flow\"]').textContent")).result).toContain("Completed");
-    await ui("click", info.ui, "--name", "Select step 2: Report findings");
+    await expect.poll(async () => (await ui("eval", info.ui, "--js", "document.querySelector('[aria-label=\"Process flow\"]').textContent")).result).toContain("Completed");
+    await ui("click", info.ui, "--name", "Select step 4: Combine findings");
     expect((await ui("eval", info.ui, "--js", "document.querySelector('[aria-labelledby=\"design-steps-title\"] pre').textContent")).result).toBe(REPLY);
     await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "run-desktop.png"));

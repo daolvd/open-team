@@ -14,6 +14,7 @@ const statusKeys = {
   completed: "design.completed",
   failed: "design.failed",
   cancelled: "design.cancelled",
+  skipped: "design.skipped",
 } satisfies Record<string, LocaleKey>;
 
 export function BotDesignPanel({ bot }: { bot: Bot }) {
@@ -111,8 +112,8 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
                 />
               </label>
               <BotProcessEditor
-                steps={draft.steps}
-                onChange={(steps) => setDraft((current) => ({ ...current, steps }))}
+                design={draft}
+                onChange={setDraft}
                 run={
                   JSON.stringify(run?.design) === JSON.stringify(draft)
                     ? run

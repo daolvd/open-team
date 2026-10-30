@@ -1,5 +1,3 @@
-// Hook point for the source-available enterprise layer (enterprise/, under its own licence), loaded only when present:
-// core never imports it statically. Its one obligation is `register()`, turning OMB_LICENSE_KEY into entitlements.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -8,13 +6,15 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { RequestAuth } from "./request-auth.ts";
 import type { SessionRegistry } from "./sessions.ts";
 
+import { configureOpenTeam } from "../extensions/open-team/server/index.ts";
+
 import { SERVER_ROOT } from "./proxy-paths.ts";
 
 export interface EditionStatus {
   edition: "oss" | "enterprise";
-  /** Enterprise only: who the license was issued to. */
+  /** Workspace name or the external license customer. */
   customer?: string;
-  /** Entitlement ids the license grants (sorted). Empty for the open-source edition. */
+  /** Enabled capabilities, sorted; the open-source extension can grant local features. */
   features: string[];
   /** Enterprise only: ISO date the license stops working, null for perpetual. */
   expiresAt?: string | null;
@@ -150,6 +150,14 @@ export async function loadEnterpriseLayer(
   }
 }
 
+export function loadOpenTeamLayer(dataDir: string, file?: string): EditionStatus {
+  workspaceAccessFactory = undefined;
+  current = { edition: "oss", features: [] };
+  const extension = configureOpenTeam(dataDir, file);
+  current = { edition: "oss", customer: extension.name, features: extension.features };
+  return current;
+}
+
 function expiryAt(): number | null {
   if (current.edition !== "enterprise" || !current.expiresAt) return null;
   const at = new Date(current.expiresAt).getTime();
@@ -209,7 +217,7 @@ export function describeEdition(status: EditionStatus): string {
     const until = status.expiresAt ? ` until ${status.expiresAt}` : "";
     return `openmausbot enterprise edition for ${status.customer}${until}: ${status.features.join(", ") || "no features"}`;
   }
-  return `openmausbot open-source edition${status.notice ? ` (${status.notice})` : ""}`;
+  return `${status.customer ?? "openmausbot"} open-source edition${status.features.length ? `: ${status.features.join(", ")}` : ""}${status.notice ? ` (${status.notice})` : ""}`;
 }
 
 /** The edition as Settings shows it: a licence block only while an Enterprise licence is near or past expiry. */

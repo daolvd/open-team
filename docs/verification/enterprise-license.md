@@ -1,48 +1,27 @@
-# Enterprise layer loading and license expiry
+# External edition adapter compatibility
 
-## Sub-features
+Open Team starts with its own open-source module. No upstream Enterprise
+implementation or signing keys are bundled. See [local module checks](open-team.md).
 
-- Find the bundled enterprise layer in every shipped layout: a checkout
-  (`enterprise/` beside `server/`), the npm package (`<package>/enterprise/`
-  beside `dist-server/`), and the Docker image and packaged desktop, which
-  carry `dist-server/` alone (`dist-server/enterprise/`). `OMB_ENTERPRISE_DIR`,
-  when set, is the only place looked at.
-- From 30 days before a key expires: `expiresInDays` on `/api/edition`, a
-  warning in the startup log, and a banner in Settings for admins. The dates
-  reach admin sessions only: a member's `/api/edition` and config leave out
-  `expiresInDays`, `graceEndsAt` and the notice.
-- For 7 days after it expires the entitlements keep working, with a notice,
-  `graceEndsAt` on `/api/edition`, and a banner saying until when. Then they
-  stop, without a restart. The key format and signature check are unchanged.
-
-## Driving it
+An operator may explicitly select an independently supplied adapter through
+`OMB_ENTERPRISE_DIR`. The Apache core validates its registration result and
+retains expiry warnings and a seven-day grace period for that adapter's
+entitlements. This is a compatibility interface, not a license issuer.
 
 ```sh
-pnpm exec vitest run server/enterprise.test.ts enterprise/server/register.test.ts
+pnpm exec vitest run server/enterprise.test.ts server/open-team.test.ts
 pnpm exec vitest run --no-file-parallelism server/license-expiry-api.test.ts server/hosted-access.test.ts
 pnpm test:packaged-server
 ```
 
-`server/enterprise.test.ts` builds each layout in a temporary directory and
-checks which copy wins, the warning window, the grace period and the moment it
-ends. `enterprise/server/register.test.ts` issues keys with a throwaway signing
-pair and checks the layer accepts a key that lapsed less than 7 days ago and
-refuses it after. `server/license-expiry-api.test.ts` boots the `control-omb`
-fixture with a stand-in layer whose key expires in 12 days, expired 2 days
-ago, or expires in 90 days, and reads `/api/edition`, the server log, and
-`/api/config` as an admin and as a chat-only device.
-`server/hosted-access.test.ts` checks a hosted server withdraws readiness the
-moment its grace period ends. The packaged-server smoke copies `dist-server/`
-out of the repository, boots it with a key that is not genuine, and fails if
-`/api/edition` says no layer exists; the Docker workflow makes the same check
-against the built image.
+`server/enterprise.test.ts` creates temporary adapters to verify loader
+precedence, invalid registration, warnings, grace and expiration.
+`server/license-expiry-api.test.ts` launches isolated servers and checks
+admin-only expiry details through the HTTP API. The hosted fixture uses a
+synthetic adapter to verify readiness is withdrawn when its entitlement ends.
+These tests do not verify cryptographic signatures or production SSO.
 
-## Gotchas
-
-- Tested on 2026-09-23 against disposable fixtures only: stand-in layers,
-  throwaway signing keys and a temporary home. No real license key, hosted
-  tenant or cloud Admin was involved; this is not production qualification.
-- The cloud Admin's own license check (`verifyLicenseKey` called directly) has
-  no grace period; only the OMB server's `register()` path does.
-- The Settings banner is proven from fixtures in
-  `src/components/LicenseExpiryBanner.test.ts`, not driven headlessly.
+The packaged smoke launches the built server outside the checkout, verifies
+all three Open Team features load without a valid key, and rejects a bundled
+restricted Enterprise directory. The Settings banner has component coverage
+in `src/components/LicenseExpiryBanner.test.ts`.

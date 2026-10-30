@@ -114,7 +114,7 @@ beforeAll(async () => {
   layer = mkdtempSync(join(tmpdir(), "omb-hosted-model-layer-"));
   mkdirSync(join(layer, "server"));
   writeFileSync(join(layer, "server/index.ts"), `
-    import { createWorkspaceAccess as create } from ${JSON.stringify(pathToFileURL(join(ROOT, "enterprise/server/workspace-access.ts")).href)};
+    import { createWorkspaceAccess as create } from ${JSON.stringify(pathToFileURL(join(ROOT, "server/testing/fake-workspace-access.ts")).href)};
     export function register() { return { customer: "Hosted models fixture", features: ["admin"], expiresAt: null }; }
     export function createWorkspaceAccess(options) {
       return create({ ...options, fetchImpl: async () => { throw new Error("The model fixture must not contact a portal"); } });
