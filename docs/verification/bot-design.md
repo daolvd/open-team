@@ -16,6 +16,12 @@ removes the first node, opens **Role & instructions**, and saves identity, metho
 and an enabled diamond-shaped process. It removes a connection and recreates it by
 dragging an Output port to an Input port, edits a text condition, moves a node
 and checks saved positions and connections.
+
+Clicking a node or connection opens the full-window process editor. The check
+edits a title, closes the popup, reopens it from the node and verifies that the
+draft survives. It saves from the popup and closes it with Escape. Focus returns
+to **Open process editor**. Desktop and phone popup screenshots verify the larger
+canvas, step inspector and visible save controls without page overflow.
 An external saved revision must appear in the open canvas without reloading.
 
 Each graph step opens its own conversation. After the plan, the two review

@@ -1,18 +1,51 @@
-import { useState } from "react";
-import { GitBranch, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { GitBranch, Maximize2, Plus, Trash2, X } from "lucide-react";
 import { botProcessWorkflow, type BotDesign, type BotProcessRun } from "../../shared/bot-design";
 import { validateWorkflow } from "../../shared/workflow";
 import { t } from "@/lib/i18n";
 import { designButton, designInput } from "./BotDesignSkills";
 import { arrangeProcess, BotProcessCanvas, processStatusKeys } from "./BotProcessCanvas";
 
-export function BotProcessEditor({ design, onChange, run }: {
+function ProcessDialog({ children, footer, onClose }: { children: ReactNode; footer: ReactNode; onClose(): void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current!;
+    element.showModal();
+    return () => element.close();
+  }, []);
+  return createPortal(
+    <dialog ref={dialog} aria-labelledby="process-editor-title"
+      className="fixed inset-0 m-auto h-[calc(100dvh-2rem)] max-h-none w-[calc(100vw-2rem)] max-w-none overflow-hidden rounded-2xl bg-panel p-0 text-ink shadow-2xl backdrop:bg-black/50"
+      onCancel={(event) => { event.preventDefault(); onClose(); }}
+      onClick={(event) => { if (event.target === event.currentTarget) { const bounds = event.currentTarget.getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose(); } }}>
+      <div className="flex h-full min-h-0 flex-col">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline/40 px-4 py-3">
+          <h2 id="process-editor-title" className="text-[18px] font-semibold">{t("design.editorTitle")}</h2>
+          <button type="button" aria-label={t("design.closeEditor")} className="rounded-lg p-2 text-ink-secondary hover:bg-control focus-visible:outline-2 focus-visible:outline-accent" onClick={onClose}><X size={20} /></button>
+        </header>
+        <div className="min-h-0 flex-1 p-4">{children}</div>
+        <footer className="shrink-0 border-t border-hairline/40 p-3">{footer}</footer>
+      </div>
+    </dialog>, document.body,
+  );
+}
+
+export function BotProcessEditor({ design, onChange, run, saveControls }: {
   design: BotDesign;
   onChange: (design: BotDesign) => void;
   run?: BotProcessRun;
+  saveControls: ReactNode;
 }) {
   const { steps } = design;
   const { edges } = botProcessWorkflow(design);
+  const [expanded, setExpanded] = useState(false);
+  const openButton = useRef<HTMLButtonElement>(null);
+  const wasExpanded = useRef(false);
+  useEffect(() => {
+    if (wasExpanded.current && !expanded) openButton.current?.focus();
+    wasExpanded.current = expanded;
+  }, [expanded]);
   const [selectedId, setSelectedId] = useState("");
   const [edgeIndex, setEdgeIndex] = useState<number | null>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
@@ -42,26 +75,29 @@ export function BotProcessEditor({ design, onChange, run }: {
     onChange({ ...next, steps: arrangeProcess(next) });
     setSelectedId(ids[0]!); setEdgeIndex(null);
   };
-  return <section aria-labelledby="design-steps-title" className="min-w-0">
+  const editor = <section aria-labelledby="design-steps-title" className={`min-w-0 ${expanded ? "flex h-full min-h-0 flex-col" : ""}`}>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h3 id="design-steps-title" className="text-[15px] font-semibold">{t("design.steps")}</h3>
       <div className="flex flex-wrap gap-2">
+        {!expanded && <button ref={openButton} type="button" className={`${designButton} inline-flex items-center gap-2`} onClick={() => setExpanded(true)}><Maximize2 size={14} />{t("design.openEditor")}</button>}
         {steps.length > 0 && <button type="button" className={designButton} onClick={() => onChange({ ...design, steps: arrangeProcess(design) })}>{t("design.arrange")}</button>}
         <button type="button" className={`${designButton} inline-flex items-center gap-1`} disabled={steps.length >= 24} onClick={addStep}><Plus size={14} />{t("design.addStep")}</button>
       </div>
     </div>
-    <p className="mt-2 text-[12px] leading-5 text-ink-secondary">{t("design.flowHint")}</p>
-    {connecting && <p role="status" className="mt-2 flex items-center justify-between gap-2 text-[12px] text-accent-text">{t("design.connectHint")}<button type="button" className={designButton} onClick={() => setConnecting(null)}>{t("design.cancelConnection")}</button></p>}
+    <div className="relative mt-2">
+      <p className={`text-[12px] leading-5 text-ink-secondary ${connecting ? "invisible" : ""}`}>{t("design.flowHint")}</p>
+      {connecting && <div role="status" className="absolute inset-0 flex items-center justify-between gap-2 text-[12px] text-accent-text"><span>{t("design.connectHint")}</span><button type="button" className={`${designButton} shrink-0`} onClick={() => setConnecting(null)}>{t("design.cancelConnection")}</button></div>}
+    </div>
     {error && <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p>}
-    <div className="mt-3 min-w-0 space-y-3">
-      <BotProcessCanvas design={design} selectedId={selected?.id ?? ""} connecting={connecting} onSelect={(id) => { setSelectedId(id); setEdgeIndex(null); }} onConnect={connect} onConnecting={setConnecting} onChange={onChange} onEdge={setEdgeIndex} run={run} empty={
+    <div className={`mt-3 min-w-0 ${expanded ? "grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden" : "space-y-3"}`}>
+      <BotProcessCanvas expanded={expanded} onOpen={expanded ? undefined : () => setExpanded(true)} design={design} selectedId={selected?.id ?? ""} connecting={connecting} onSelect={(id) => { setSelectedId(id); setEdgeIndex(null); setExpanded(true); }} onConnect={connect} onConnecting={setConnecting} onChange={onChange} onEdge={(index) => { setEdgeIndex(index); setExpanded(true); }} run={run} empty={
         <div className="flex min-h-[300px] flex-col items-center justify-center gap-4 px-5 py-8 text-center">
           <button type="button" className="inline-flex min-h-20 items-center gap-2 rounded-xl border border-dashed border-accent bg-card px-6 text-[14px] font-medium text-accent-text hover:bg-control focus-visible:outline-2 focus-visible:outline-accent" onClick={addStep}><Plus size={18} />{t("design.addFirstStep")}</button>
           <p className="max-w-sm text-[12px] leading-5 text-ink-secondary">{t("design.emptySteps")}</p>
           <button type="button" className={`${designButton} inline-flex items-center gap-2`} onClick={addParallelExample}><GitBranch size={15} />{t("design.parallelExample")}</button>
         </div>
       } />
-      {selected && <>
+      {selected && <aside className={expanded ? "min-h-0 min-w-0 lg:overflow-y-auto" : ""}>
       {edge ? <div className="space-y-3 rounded-xl border border-hairline/40 bg-card p-3">
         <div className="flex items-center justify-between gap-2"><h4 className="text-[13px] font-semibold">{steps.find((step) => step.id === edge.from)?.title} → {steps.find((step) => step.id === edge.to)?.title}</h4><button type="button" className={designButton} onClick={() => { onChange({ ...design, edges: edges.filter((_, i) => i !== edgeIndex) }); setEdgeIndex(null); }}>{t("design.removeConnection")}</button></div>
         <label className="block text-[12px] font-medium">{t("design.condition")}<input className={`${designInput} mt-1`} value={edge.contains ?? ""} maxLength={1000} placeholder={t("design.always")} onChange={(event) => { const contains = event.target.value; onChange({ ...design, edges: edges.map((entry, i) => i === edgeIndex ? { from: entry.from, to: entry.to, ...(contains.trim() ? { contains } : {}) } : entry) }); }} /></label>
@@ -76,7 +112,8 @@ export function BotProcessEditor({ design, onChange, run }: {
         <label className="block text-[12px] font-medium">{t("design.stepInstruction", { number: index + 1 })}<textarea className={`${designInput} mt-1`} rows={5} value={selected.instruction} maxLength={8000} placeholder={t("design.stepInstructionPlaceholder")} onChange={(event) => update({ instruction: event.target.value })} /></label>
         {result && run && <div className="border-t border-hairline/40 pt-3 text-[12px]"><p className="flex flex-wrap justify-between gap-2 text-ink-secondary"><span>{t("design.history")}</span><span>{new Date(run.startedAt).toLocaleString()} · {t(processStatusKeys[result.status])}</span></p>{(result.output || result.error) && <div className="mt-3"><p className="font-medium">{t(result.error ? "design.error" : "design.output")}</p><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono">{result.error ?? result.output}</pre></div>}</div>}
       </div>}
-      </>}
+      </aside>}
     </div>
   </section>;
+  return expanded ? <ProcessDialog footer={saveControls} onClose={() => { setExpanded(false); setConnecting(null); }}>{editor}</ProcessDialog> : editor;
 }

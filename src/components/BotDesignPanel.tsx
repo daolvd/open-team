@@ -28,6 +28,21 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
   const run =
     snapshot?.runs.find((entry) => entry.id === selectedRun) ??
     snapshot?.runs[0];
+  const saveControls = (
+    <div className="-mx-1 flex items-center justify-between gap-3 rounded-xl border border-hairline/40 bg-card p-3">
+      <span className="text-[12px] text-ink-secondary">
+        {model.dirty ? t("design.unsavedHint") : t("design.savedHint")}
+      </span>
+      <button
+        type="button"
+        className={`${designButton} shrink-0 !bg-ink !text-app`}
+        disabled={Boolean(working) || !model.dirty}
+        onClick={() => void model.save()}
+      >
+        {working === "save" ? t("design.saving") : t("design.save")}
+      </button>
+    </div>
+  );
   return (
     <div className="space-y-5 p-4 text-ink" data-testid="bot-design">
       <header>
@@ -86,6 +101,7 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
                 />
               </div>
               <BotProcessEditor
+                saveControls={<>{saveControls}{model.error && <p role="alert" className="mt-2 text-[12px] text-danger">{model.error}</p>}</>}
                 design={draft}
                 onChange={setDraft}
                 run={
@@ -125,21 +141,7 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
                   </label>
                 </div>
               </details>
-              <div className="-mx-1 flex items-center justify-between gap-3 rounded-xl border border-hairline/40 bg-card p-3">
-                <span className="text-[12px] text-ink-secondary">
-                  {model.dirty
-                    ? t("design.unsavedHint")
-                    : t("design.savedHint")}
-                </span>
-                <button
-                  type="button"
-                  className={`${designButton} shrink-0 !bg-ink !text-app`}
-                  disabled={Boolean(working) || !model.dirty}
-                  onClick={() => void model.save()}
-                >
-                  {working === "save" ? t("design.saving") : t("design.save")}
-                </button>
-              </div>
+              {saveControls}
               <section
                 className="space-y-3 border-t border-hairline/40 pt-5"
                 aria-labelledby="design-assistant-title"

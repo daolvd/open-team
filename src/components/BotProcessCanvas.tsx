@@ -31,7 +31,7 @@ export function arrangeProcess(design: BotDesign): BotDesign["steps"] {
   });
 }
 
-export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onConnect, onConnecting, onChange, onEdge, run, empty }: {
+export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onConnect, onConnecting, onChange, onEdge, run, empty, expanded = false, onOpen }: {
   design: BotDesign;
   selectedId: string;
   connecting: string | null;
@@ -42,6 +42,8 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
   onEdge(index: number): void;
   run?: BotProcessRun;
   empty: ReactNode;
+  expanded?: boolean;
+  onOpen?(): void;
 }) {
   const marker = useId();
   const viewport = useRef<HTMLDivElement>(null);
@@ -57,13 +59,13 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
   const canvasHeight = Math.max(360, ...nodes.map((step) => step.y + height + 40));
   const source = nodes.find((step) => step.id === connecting);
   return (
-    <div className="min-w-0">
+    <div className={expanded ? "flex min-h-[320px] min-w-0 flex-col lg:min-h-0" : "min-w-0"}>
       {nodes.length > 0 && <div className="mb-2 flex items-center justify-end gap-2 text-[12px]">
-        <button type="button" className="rounded-md border border-hairline/40 px-2 py-1 hover:bg-control" onClick={() => { if (viewport.current) setZoom(Math.min(1, viewport.current.clientWidth / canvasWidth, 560 / canvasHeight)); }}>{t("design.fitView")}</button>
+        <button type="button" className="rounded-md border border-hairline/40 px-2 py-1 hover:bg-control" onClick={() => { if (viewport.current) setZoom(Math.min(1, viewport.current.clientWidth / canvasWidth, (expanded ? viewport.current.clientHeight : 560) / canvasHeight)); }}>{t("design.fitView")}</button>
         <button type="button" className="rounded-md border border-hairline/40 px-2 py-1 hover:bg-control" onClick={() => setZoom(1)} aria-label={t("design.actualSize")}>100%</button>
         <span className="text-ink-secondary">{Math.round(zoom * 100)}%</span>
       </div>}
-    <div ref={viewport} aria-label={t("design.flow")} className="max-h-[580px] min-w-0 overflow-auto rounded-xl border border-hairline/40 bg-inset" onKeyDown={(event) => { if (event.key === "Escape") { onConnecting(null); setWire(null); } }}>
+    <div ref={viewport} aria-label={t("design.flow")} className={`${expanded ? "min-h-[300px] flex-1 lg:min-h-0" : "max-h-[580px]"} min-w-0 overflow-auto rounded-xl border border-hairline/40 bg-inset`} onClick={(event) => { if (!(event.target as Element).closest("button")) onOpen?.(); }} onKeyDown={(event) => { if (event.key === "Escape" && connecting) { event.preventDefault(); event.stopPropagation(); onConnecting(null); setWire(null); } }}>
       {nodes.length === 0 ? <div data-process-canvas>{empty}</div> : <div style={{ width: canvasWidth * zoom, height: canvasHeight * zoom }}>
       <div data-process-canvas className="relative origin-top-left" style={{ width: canvasWidth, height: canvasHeight, transform: `scale(${zoom})` }}>
         <svg className="absolute inset-0 h-full w-full overflow-visible text-ink-secondary" aria-label={t("design.connections")}>

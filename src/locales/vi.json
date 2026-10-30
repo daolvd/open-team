@@ -5156,5 +5156,8 @@
   "design.exampleStartInstruction": "Đọc nhiệm vụ và ngữ cảnh project. Lập kế hoạch cho hai nhánh kiểm tra.",
   "design.exampleLeftInstruction": "Kiểm tra UI hiện tại và báo cáo vấn đề sử dụng có bằng chứng.",
   "design.exampleRightInstruction": "Kiểm tra code liên quan và báo cáo vấn đề triển khai có bằng chứng.",
-  "design.exampleJoinInstruction": "Tổng hợp hai báo cáo thành danh sách ưu tiên kèm bằng chứng."
+  "design.exampleJoinInstruction": "Tổng hợp hai báo cáo thành danh sách ưu tiên kèm bằng chứng.",
+  "design.openEditor": "Mở trình sửa process",
+  "design.editorTitle": "Chỉnh sửa process",
+  "design.closeEditor": "Đóng trình sửa process"
 }

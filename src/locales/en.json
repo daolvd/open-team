@@ -6981,5 +6981,8 @@
   "design.exampleStartInstruction": "Read the task and project context. Produce a plan for both reviewers.",
   "design.exampleLeftInstruction": "Inspect the current UI and report concrete usability findings.",
   "design.exampleRightInstruction": "Inspect the relevant code and report concrete implementation findings.",
-  "design.exampleJoinInstruction": "Combine both reviews into a prioritized report with evidence."
+  "design.exampleJoinInstruction": "Combine both reviews into a prioritized report with evidence.",
+  "design.openEditor": "Open process editor",
+  "design.editorTitle": "Process editor",
+  "design.closeEditor": "Close process editor"
 }
