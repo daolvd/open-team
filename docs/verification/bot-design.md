@@ -10,15 +10,17 @@ The test owns its temporary home, data directory, fake Claude engine and browser
 It never changes the user's running app or installed Claude skills. Screenshots
 and the process run JSON are retained in the evidence directory.
 
-The UI check opens **Bot's screen → Design bot**, saves identity, method and an
-enabled diamond-shaped process. It removes a connection and recreates it by
+The UI check opens **Bot's screen → Design bot** and verifies that an empty
+canvas is visible immediately, without creating saved steps. It creates and
+removes the first node, opens **Role & instructions**, and saves identity, method
+and an enabled diamond-shaped process. It removes a connection and recreates it by
 dragging an Output port to an Input port, edits a text condition, moves a node
 and checks saved positions and connections.
 
 Each graph step opens its own conversation. After the plan, the two review
 steps must overlap in time, and the final step must wait for both results.
 Selecting a completed node shows the fake engine's actual output. Screenshots
-cover desktop and phone layouts, including horizontal page overflow.
+cover empty and populated desktop and phone layouts, including horizontal page overflow.
 
 Designs saved without an `edges` property retain their sequential execution and
 shared conversation. An explicit empty `edges` array starts all steps as roots.

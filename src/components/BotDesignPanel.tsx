@@ -85,32 +85,6 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
                   }
                 />
               </div>
-              <label className="block text-[13px] font-medium">
-                {t("design.identity")}
-                <textarea
-                  className={`${designInput} mt-2`}
-                  rows={2}
-                  value={draft.identity}
-                  maxLength={8000}
-                  onChange={(event) =>
-                    setDraft({ ...draft, identity: event.target.value })
-                  }
-                  placeholder={t("design.identityPlaceholder")}
-                />
-              </label>
-              <label className="block text-[13px] font-medium">
-                {t("design.method")}
-                <textarea
-                  className={`${designInput} mt-2`}
-                  rows={2}
-                  value={draft.method}
-                  maxLength={16000}
-                  onChange={(event) =>
-                    setDraft({ ...draft, method: event.target.value })
-                  }
-                  placeholder={t("design.methodPlaceholder")}
-                />
-              </label>
               <BotProcessEditor
                 design={draft}
                 onChange={setDraft}
@@ -120,7 +94,38 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
                     : undefined
                 }
               />
-              <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-3 rounded-xl border border-hairline/40 bg-card p-3">
+              <details className="border-t border-hairline/40 pt-4">
+                <summary className="cursor-pointer rounded-md text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-accent">{t("design.context")}</summary>
+                <div className="mt-4 space-y-4">
+                  <label className="block text-[13px] font-medium">
+                    {t("design.identity")}
+                    <textarea
+                      className={`${designInput} mt-2`}
+                      rows={2}
+                      value={draft.identity}
+                      maxLength={8000}
+                      onChange={(event) =>
+                        setDraft({ ...draft, identity: event.target.value })
+                      }
+                      placeholder={t("design.identityPlaceholder")}
+                    />
+                  </label>
+                  <label className="block text-[13px] font-medium">
+                    {t("design.method")}
+                    <textarea
+                      className={`${designInput} mt-2`}
+                      rows={2}
+                      value={draft.method}
+                      maxLength={16000}
+                      onChange={(event) =>
+                        setDraft({ ...draft, method: event.target.value })
+                      }
+                      placeholder={t("design.methodPlaceholder")}
+                    />
+                  </label>
+                </div>
+              </details>
+              <div className="-mx-1 flex items-center justify-between gap-3 rounded-xl border border-hairline/40 bg-card p-3">
                 <span className="text-[12px] text-ink-secondary">
                   {model.dirty
                     ? t("design.unsavedHint")

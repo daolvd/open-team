@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { Check, GripVertical, Loader2 } from "lucide-react";
 import { botProcessWorkflow, type BotDesign, type BotProcessRun } from "../../shared/bot-design";
 import { t } from "@/lib/i18n";
@@ -31,7 +31,7 @@ export function arrangeProcess(design: BotDesign): BotDesign["steps"] {
   });
 }
 
-export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onConnect, onConnecting, onChange, onEdge, run }: {
+export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onConnect, onConnecting, onChange, onEdge, run, empty }: {
   design: BotDesign;
   selectedId: string;
   connecting: string | null;
@@ -41,6 +41,7 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
   onChange(design: BotDesign): void;
   onEdge(index: number): void;
   run?: BotProcessRun;
+  empty: ReactNode;
 }) {
   const marker = useId();
   const viewport = useRef<HTMLDivElement>(null);
@@ -57,13 +58,13 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
   const source = nodes.find((step) => step.id === connecting);
   return (
     <div className="min-w-0">
-      <div className="mb-2 flex items-center justify-end gap-2 text-[12px]">
+      {nodes.length > 0 && <div className="mb-2 flex items-center justify-end gap-2 text-[12px]">
         <button type="button" className="rounded-md border border-hairline/40 px-2 py-1 hover:bg-control" onClick={() => { if (viewport.current) setZoom(Math.min(1, viewport.current.clientWidth / canvasWidth, 560 / canvasHeight)); }}>{t("design.fitView")}</button>
         <button type="button" className="rounded-md border border-hairline/40 px-2 py-1 hover:bg-control" onClick={() => setZoom(1)} aria-label={t("design.actualSize")}>100%</button>
         <span className="text-ink-secondary">{Math.round(zoom * 100)}%</span>
-      </div>
+      </div>}
     <div ref={viewport} aria-label={t("design.flow")} className="max-h-[580px] min-w-0 overflow-auto rounded-xl border border-hairline/40 bg-inset" onKeyDown={(event) => { if (event.key === "Escape") { onConnecting(null); setWire(null); } }}>
-      <div style={{ width: canvasWidth * zoom, height: canvasHeight * zoom }}>
+      {nodes.length === 0 ? <div data-process-canvas>{empty}</div> : <div style={{ width: canvasWidth * zoom, height: canvasHeight * zoom }}>
       <div data-process-canvas className="relative origin-top-left" style={{ width: canvasWidth, height: canvasHeight, transform: `scale(${zoom})` }}>
         <svg className="absolute inset-0 h-full w-full overflow-visible text-ink-secondary" aria-label={t("design.connections")}>
           <defs><marker id={marker} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="currentColor" /></marker></defs>
@@ -103,7 +104,7 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
           </div>;
         })}
       </div>
-      </div>
+      </div>}
     </div>
     </div>
   );
