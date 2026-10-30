@@ -87,12 +87,22 @@ try {
   push({ message: { message_id: 1, chat: { id: 123 }, from: { id: 456 }, text: "Create a project using a phone form." } });
   const choice = await eventually(() => sent.find(row => row.method === "sendMessage" && row.body.reply_markup?.inline_keyboard), Boolean, "choice form");
   assert.ok(choice);
+  const activity = () => sent.filter(row => row.method === "sendChatAction");
+  assert.ok(activity().length > 0, "Task processing sends a typing indicator");
+  assert.deepEqual(activity()[0]!.body, { chat_id: "123", action: "typing" });
+  const waitingCount = activity().length;
+  await new Promise(resolve => setTimeout(resolve, 4200));
+  assert.equal(activity().length, waitingCount, "Typing pauses while waiting for a phone answer");
   push({ callback_query: { id: "phone-choice", from: { id: 456 }, message: { message_id: choice.messageId, chat: { id: 123 } }, data: choice.body.reply_markup.inline_keyboard[0][0].callback_data } });
   const text = await eventually(() => sent.find(row => row.method === "sendMessage" && row.body.reply_markup?.force_reply), Boolean, "text form");
   assert.ok(text);
   push({ message: { message_id: 2, chat: { id: 123 }, from: { id: 456 }, text: "Open Team", reply_to_message: { message_id: text.messageId } } });
   const first = (await eventually(() => api("GET", "/api/workflows/tasks"), result => result.tasks[0]?.status === "completed", "completed phone task")).tasks[0];
   assert.match(first.result, /Form received/);
+  assert.ok(activity().length > waitingCount, "Typing resumes after phone answers");
+  const completedCount = activity().length;
+  await new Promise(resolve => setTimeout(resolve, 4200));
+  assert.equal(activity().length, completedCount, "Typing stops after task completion");
   const upload = sent.find(row => row.method === "sendDocument");
   assert.ok(upload);
   assert.equal(await (upload.body.document as File).text(), "Phone form completed; original file delivered.");
@@ -110,7 +120,7 @@ try {
   const evidence = { ok: true, url: fixture.info.url, logPath: fixture.info.logPath, first, second, messages, answers, deliveries: sent.map(row => ({ method: row.method, text: row.body.text, file: row.body.document?.name })) };
   mkdirSync(".omb-scratch", { recursive: true });
   writeFileSync(".omb-scratch/telegram-evidence.json", JSON.stringify(evidence, null, 2));
-  console.log(JSON.stringify({ ok: true, logPath: fixture.info.logPath, evidence: ".omb-scratch/telegram-evidence.json", verified: "native choice and text forms, engine answers, file delivery, quiet queue, direct routing with workflow disabled, same-thread continuation" }));
+  console.log(JSON.stringify({ ok: true, logPath: fixture.info.logPath, evidence: ".omb-scratch/telegram-evidence.json", verified: "typing while working, paused during phone input, stopped after completion, native choice and text forms, engine answers, file delivery, quiet queue, direct routing with workflow disabled, same-thread continuation" }));
 } finally {
   await waitForExit(child, { signal: "SIGTERM" });
   await fixture.close();

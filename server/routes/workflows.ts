@@ -151,6 +151,7 @@ export function createWorkflowRoutes(deps: {
     if (task) task.runId = run.id;
     saved.runs = [run, ...saved.runs].slice(0, 20);
     persist();
+    const finishActivity = telegram.working();
     const done = (async () => {
       const results = await executeWorkflow(workflow, async (step, inputs) => {
         run.steps[step.id] = { status: "running" };
@@ -230,6 +231,7 @@ export function createWorkflowRoutes(deps: {
         return run;
       })
       .finally(() => {
+        finishActivity();
         queueMicrotask(() => void pump());
       });
     return { run, done };
@@ -287,6 +289,7 @@ export function createWorkflowRoutes(deps: {
     task.status = "running";
     task.startedAt = Date.now();
     persist();
+    const finishActivity = telegram.working();
     try {
       if (task.targetBotId) {
         if (!deps.available(task.targetBotId))
@@ -322,6 +325,7 @@ export function createWorkflowRoutes(deps: {
       task.error = String(error);
       announce(`Task failed: ${task.title}\n${task.error}`);
     } finally {
+      finishActivity();
       task.finishedAt = Date.now();
       persist();
       pumping = false;

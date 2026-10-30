@@ -399,6 +399,8 @@ it("routes Telegram input from the selected step and sends task receipts, output
       return Response.json({ ok: true, result: { username: "fixture_bot" } });
     if (method === "getWebhookInfo")
       return Response.json({ ok: true, result: { url: "" } });
+    if (method === "sendChatAction")
+      return Response.json({ ok: true, result: true });
     if (method === "sendMessage") {
       sent.push(body);
       return Response.json({ ok: true, result: {} });

@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createWorkflowTelegram } from "./workflow-telegram.ts";
 
 const cleanup: (() => void)[] = [];
@@ -25,6 +25,7 @@ function fixture() {
   let failure = false;
   let deliveryFails = false;
   let webhookUrl = "";
+  let activityFails = false;
   const calls: { input: string; entry: string; bot?: string; conversation?: string }[] = [];
   const bridge = createWorkflowTelegram({
     dataDir: dir,
@@ -43,6 +44,11 @@ function fixture() {
         return Response.json({ ok: true, result: {} });
       }
       const body = JSON.parse(String(options?.body));
+      if (method === "sendChatAction") {
+        actions.push({ method, body });
+        if (activityFails) throw new Error("Typing unavailable");
+        return Response.json({ ok: true, result: true });
+      }
       if (method === "editMessageReplyMarkup" || method === "answerCallbackQuery") {
         actions.push({ method, body });
         return Response.json({ ok: true, result: {} });
@@ -105,6 +111,7 @@ function fixture() {
     webhook: (url: string) => {
       webhookUrl = url;
     },
+    failActivity: () => { activityFails = true; },
   };
 }
 const config = {
@@ -278,4 +285,47 @@ it("cancels a waiting form on pause and sends no empty queue acknowledgement", a
   await expect.poll(() => f.sent.length).toBe(2);
   f.enable(false);
   await rejection;
+});
+
+it("keeps typing through overlapping work, pauses for phone input and stops on completion or disconnect", async () => {
+  const f = fixture();
+  await f.bridge.configure(config);
+  f.bridge.start(); f.enable(true);
+  await expect.poll(() => f.bridge.status().state).toBe("listening");
+  vi.useFakeTimers();
+  cleanup.push(() => vi.useRealTimers());
+  const typing = () => f.actions.filter(action => action.method === "sendChatAction");
+  const finish = f.bridge.working();
+  const finishOther = f.bridge.working();
+  expect(typing()).toEqual([{ method: "sendChatAction", body: { chat_id: "123", action: "typing" } }]);
+  await vi.advanceTimersByTimeAsync(8000);
+  expect(typing()).toHaveLength(3);
+  finishOther(); finishOther();
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(typing()).toHaveLength(4);
+  const abort = new AbortController();
+  const answer = f.bridge.ask("Input", [{ question: "Name?", options: [] }], abort.signal);
+  const rejection = expect(answer).rejects.toThrow(/closed or expired/);
+  await vi.advanceTimersByTimeAsync(8000);
+  expect(typing()).toHaveLength(4);
+  abort.abort();
+  await rejection;
+  expect(typing()).toHaveLength(5);
+  finish();
+  await vi.advanceTimersByTimeAsync(8000);
+  expect(typing()).toHaveLength(5);
+  f.failActivity();
+  const finishFailed = f.bridge.working();
+  await vi.advanceTimersByTimeAsync(4000);
+  await f.bridge.notify("Completed despite typing failure");
+  expect(f.sent.at(-1)?.text).toBe("Completed despite typing failure");
+  expect(f.bridge.status().error).toBeUndefined();
+  f.enable(false);
+  const pausedCount = typing().length;
+  await vi.advanceTimersByTimeAsync(8000);
+  expect(typing()).toHaveLength(pausedCount);
+  f.bridge.disconnect();
+  await vi.advanceTimersByTimeAsync(8000);
+  finishFailed();
+  expect(typing()).toHaveLength(pausedCount);
 });

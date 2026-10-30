@@ -72,6 +72,49 @@ export function createWorkflowTelegram(deps: {
   }>();
   let incomingQueue = Promise.resolve();
   const formMessages = new Set<number>();
+  const work = new Map<symbol, Connection>();
+  let activityTimer: ReturnType<typeof setInterval> | undefined;
+  let activityController: AbortController | undefined;
+  function stopActivity() {
+    clearInterval(activityTimer);
+    activityTimer = undefined;
+    activityController?.abort();
+    activityController = undefined;
+  }
+  function refreshActivity() {
+    const config = connection;
+    if (!config || !active || state !== "listening" || !deps.enabled(config.targetBotId) ||
+      ![...work.values()].includes(config) || [...forms.values()].some(form => form.config === config)) {
+      stopActivity();
+      return;
+    }
+    if (activityController) return;
+    const control = new AbortController();
+    activityController = control;
+    let sending = false;
+    const tick = async () => {
+      if (sending || control.signal.aborted) return;
+      sending = true;
+      try {
+        await call(config, "sendChatAction", { chat_id: config.chatId, action: "typing" }, control.signal);
+      } catch {} finally {
+        sending = false;
+      }
+    };
+    void tick();
+    // Telegram Bot API chat actions expire after five seconds: https://core.telegram.org/bots/api#sendchataction
+    activityTimer = setInterval(() => void tick(), 4000);
+    activityTimer.unref?.();
+  }
+  function working() {
+    const id = Symbol();
+    if (connection) work.set(id, connection);
+    refreshActivity();
+    return () => {
+      work.delete(id);
+      refreshActivity();
+    };
+  }
   function cancelForms() {
     for (const form of forms.values()) form.settle();
   }
@@ -127,13 +170,14 @@ export function createWorkflowTelegram(deps: {
     };
   }
   function pause() {
+    state = connection ? "paused" : "disconnected";
     cancelForms();
+    stopActivity();
     clearTimeout(timer);
     timer = undefined;
     controller?.abort();
     controller = undefined;
     discardBacklog = true;
-    state = connection ? "paused" : "disconnected";
   }
   async function send(
     config: Connection,
@@ -243,12 +287,14 @@ export function createWorkflowTelegram(deps: {
       timeout.unref?.();
       function settle(answer?: string) {
         if (!forms.delete(id)) return;
+        refreshActivity();
         clearTimeout(timeout);
         signal?.removeEventListener("abort", onAbort);
         if (answer) resolve(answer);
         else reject(new Error("Telegram form closed or expired. Answer the question in the app."));
       }
       forms.set(id, { config, questions, answers: questions.map(() => []), index: 0, settle });
+      refreshActivity();
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) { settle(); return; }
       const next = deliveries.then(async () => {
@@ -348,6 +394,7 @@ export function createWorkflowTelegram(deps: {
         discardBacklog = false;
       }
       state = "listening";
+      refreshActivity();
       while (
         !control.signal.aborted &&
         active &&
@@ -402,6 +449,7 @@ export function createWorkflowTelegram(deps: {
     notify,
     file: sendFile,
     ask,
+    working,
     refresh,
     start() {
       active = true;
