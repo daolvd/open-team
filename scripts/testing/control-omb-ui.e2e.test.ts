@@ -150,11 +150,25 @@ describe("control-omb ui drives the real renderer", () => {
       await ui("type", info.ui, "--name", `Step ${index + 1} title`, "--text", title);
       await ui("type", info.ui, "--name", `Step ${index + 1} instruction`, "--text", index ? "Summarize the previous output with actionable fixes." : "Read the current screen and report observations.");
     }
+    expect((await ui("eval", info.ui, "--js", "document.querySelectorAll('[data-process-connection]').length")).result).toBe(1);
+    await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
+    await browser("drag", '[data-process-step]:last-child [data-process-drag]', '[data-process-step]:first-child button[aria-pressed]');
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot).toContain('button "Select step 1: Report findings"');
+    await ui("click", info.ui, "--name", "Move step 1 down");
+    await ui("click", info.ui, "--name", "Select step 1: Inspect current UI");
+    expect((await ui("eval", info.ui, "--js", "document.querySelector('textarea[maxlength=\"8000\"][rows=\"5\"]').value")).result).toBe("Read the current screen and report observations.");
     await ui("click", info.ui, "--name", "Enable bot process");
     await ui("click", info.ui, "--name", "Save process");
     await expect.poll(async () => (await design() as any).design.enabled).toBe(true);
+    expect((await design() as any).design.steps.map((step: any) => step.title)).toEqual(["Inspect current UI", "Report findings"]);
     mkdirSync(evidenceDir, { recursive: true });
+    await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "process-desktop.png"));
+    await browser("set", "viewport", "390", "844");
+    await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
+    await ui("screenshot", info.ui, "--out", join(evidenceDir, "process-mobile.png"));
+    expect((await ui("eval", info.ui, "--js", "document.documentElement.scrollWidth > window.innerWidth")).result).toBe(false);
+    await browser("set", "viewport", "1600", "1000");
     await ui("type", info.ui, "--name", "Process task", "--text", "Audit this isolated fixture");
     await ui("click", info.ui, "--name", "Run process");
     await expect.poll(async () => {
@@ -167,6 +181,10 @@ describe("control-omb ui drives the real renderer", () => {
     expect(state.runs[0].steps.map((step: any) => step.status)).toEqual(["completed", "completed"]);
     expect(state.runs[0].steps.every((step: any) => step.output === REPLY)).toBe(true);
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 15_000 }).toContain("Completed");
+    await expect.poll(async () => (await ui("eval", info.ui, "--js", "document.querySelector('ol[aria-label=\"Process flow\"]').textContent")).result).toContain("Completed");
+    await ui("click", info.ui, "--name", "Select step 2: Report findings");
+    expect((await ui("eval", info.ui, "--js", "document.querySelector('[aria-labelledby=\"design-steps-title\"] pre').textContent")).result).toBe(REPLY);
+    await browser("eval", "document.querySelector('[aria-labelledby=\"design-steps-title\"]').scrollIntoView({block:'start'})");
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "run-desktop.png"));
     await ui("click", info.ui, "--name", "Skills");
     await browser("wait", "--fn", "document.querySelector('a[href=\"https://skills.sh\"]')!==null");

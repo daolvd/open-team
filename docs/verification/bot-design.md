@@ -15,6 +15,11 @@ enabled two-step process, then runs both steps in the same conversation. Each
 step must report completed status and the fake engine's actual output. The next
 step waits for the previous turn to release its conversation.
 
+The process editor connects steps with arrows. The check drags a step, restores
+its order with the reorder button, selects a step to edit its instruction, and
+checks the saved execution order. Selecting a completed step shows its actual
+output beside the diagram. Process screenshots cover desktop and phone layouts.
+
 It then checks native skill controls in both **Design bot → Skills** and
 **Profile → Library → Skills**. Disable all must turn off every listed skill;
 enabling one must leave the others off. Reloading must preserve the selected

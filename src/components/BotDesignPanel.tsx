@@ -1,19 +1,12 @@
 import { useState } from "react";
-import {
-  ArrowDown,
-  ArrowUp,
-  Check,
-  GripVertical,
-  Loader2,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { Switch } from "./SettingsPrimitives";
 import { BotDesignSkills, designButton, designInput } from "./BotDesignSkills";
 import { useBotDesign } from "./bot-design-state";
+import { BotProcessEditor } from "./BotProcessEditor";
 
 const statusKeys = {
   pending: "design.pending",
@@ -30,29 +23,10 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
   const [task, setTask] = useState("");
   const [message, setMessage] = useState("");
   const [selectedRun, setSelectedRun] = useState("");
-  const [dragged, setDragged] = useState<string | null>(null);
   const active = snapshot?.runs.find((run) => run.status === "running");
   const run =
     snapshot?.runs.find((entry) => entry.id === selectedRun) ??
     snapshot?.runs[0];
-  const updateStep = (
-    id: string,
-    patch: { title?: string; instruction?: string },
-  ) =>
-    setDraft((current) => ({
-      ...current,
-      steps: current.steps.map((step) =>
-        step.id === id ? { ...step, ...patch } : step,
-      ),
-    }));
-  const move = (id: string, index: number) =>
-    setDraft((current) => {
-      const steps = [...current.steps];
-      const from = steps.findIndex((step) => step.id === id);
-      if (from < 0 || index < 0 || index >= steps.length) return current;
-      steps.splice(index, 0, steps.splice(from, 1)[0]!);
-      return { ...current, steps };
-    });
   return (
     <div className="space-y-5 p-4 text-ink" data-testid="bot-design">
       <header>
@@ -136,142 +110,15 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
                   placeholder={t("design.methodPlaceholder")}
                 />
               </label>
-              <section aria-labelledby="design-steps-title">
-                <div className="flex items-center justify-between gap-2">
-                  <h3
-                    id="design-steps-title"
-                    className="text-[15px] font-semibold"
-                  >
-                    {t("design.steps")}
-                  </h3>
-                  <button
-                    type="button"
-                    className={`${designButton} inline-flex items-center gap-1`}
-                    disabled={draft.steps.length >= 24}
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        steps: [
-                          ...draft.steps,
-                          {
-                            id: crypto.randomUUID(),
-                            title: "",
-                            instruction: "",
-                          },
-                        ],
-                      })
-                    }
-                  >
-                    <Plus size={14} />
-                    {t("design.addStep")}
-                  </button>
-                </div>
-                <p className="mt-2 text-[12px] leading-5 text-ink-secondary">
-                  {t("design.stepsHint")}
-                </p>
-                {!draft.steps.length && (
-                  <p className="mt-3 rounded-xl bg-inset p-4 text-[13px] text-ink-secondary">
-                    {t("design.emptySteps")}
-                  </p>
-                )}
-                <ol className="mt-3 space-y-3" aria-label={t("design.steps")}>
-                  {draft.steps.map((step, index) => (
-                    <li
-                      key={step.id}
-                      className={`rounded-xl border bg-card p-3 ${dragged === step.id ? "border-accent" : "border-hairline/40"}`}
-                      onDragOver={(event) => {
-                        if (dragged) event.preventDefault();
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        if (dragged) move(dragged, index);
-                        setDragged(null);
-                      }}
-                    >
-                      <div className="mb-2 flex items-center gap-2">
-                        <span
-                          draggable
-                          onDragStart={(event) => {
-                            setDragged(step.id);
-                            event.dataTransfer.setData("text/plain", step.id);
-                          }}
-                          onDragEnd={() => setDragged(null)}
-                          className="flex cursor-grab items-center gap-1 text-[12px] text-ink-secondary"
-                          title={t("design.reorder")}
-                        >
-                          <GripVertical size={14} />
-                          {index + 1}
-                        </span>
-                        <span className="flex-1" />
-                        <button
-                          type="button"
-                          className={designButton}
-                          aria-label={t("design.moveUp", { number: index + 1 })}
-                          disabled={index === 0}
-                          onClick={() => move(step.id, index - 1)}
-                        >
-                          <ArrowUp size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className={designButton}
-                          aria-label={t("design.moveDown", {
-                            number: index + 1,
-                          })}
-                          disabled={index === draft.steps.length - 1}
-                          onClick={() => move(step.id, index + 1)}
-                        >
-                          <ArrowDown size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className={designButton}
-                          aria-label={t("design.removeStep", {
-                            number: index + 1,
-                          })}
-                          onClick={() =>
-                            setDraft({
-                              ...draft,
-                              steps: draft.steps.filter(
-                                (entry) => entry.id !== step.id,
-                              ),
-                            })
-                          }
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                      <input
-                        className={designInput}
-                        aria-label={t("design.stepTitle", {
-                          number: index + 1,
-                        })}
-                        value={step.title}
-                        onChange={(event) =>
-                          updateStep(step.id, { title: event.target.value })
-                        }
-                        maxLength={160}
-                        placeholder={t("design.stepTitlePlaceholder")}
-                      />
-                      <textarea
-                        className={`${designInput} mt-2`}
-                        aria-label={t("design.stepInstruction", {
-                          number: index + 1,
-                        })}
-                        rows={2}
-                        value={step.instruction}
-                        onChange={(event) =>
-                          updateStep(step.id, {
-                            instruction: event.target.value,
-                          })
-                        }
-                        maxLength={8000}
-                        placeholder={t("design.stepInstructionPlaceholder")}
-                      />
-                    </li>
-                  ))}
-                </ol>
-              </section>
+              <BotProcessEditor
+                steps={draft.steps}
+                onChange={(steps) => setDraft((current) => ({ ...current, steps }))}
+                run={
+                  JSON.stringify(run?.design) === JSON.stringify(draft)
+                    ? run
+                    : undefined
+                }
+              />
               <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-3 rounded-xl border border-hairline/40 bg-card p-3">
                 <span className="text-[12px] text-ink-secondary">
                   {model.dirty
