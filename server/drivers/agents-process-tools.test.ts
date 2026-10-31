@@ -14,11 +14,11 @@ it("advertises process authoring only to Chiefs and marks only its read tool rea
   }
 });
 
-it("maps the target and design without passing forged sender identity or enabling execution", async () => {
+it("maps the target and design with an explicit enabled switch without passing forged sender identity", async () => {
   const apiResponse = vi.fn(async () => ({ ok: true, status: 200, body: { design: { enabled: false } } }));
   const context: ToolCallContext = { botId: "chief", threadId: "thread", depth: 0, externalRuntime: false, sharedComputers: false,
     client: { api: async () => ({}), apiResponse } };
-  const design = { identity: "Worker", method: "Verify findings", steps: [], edges: [] };
+  const design = { enabled: true, identity: "Worker", method: "Verify findings", steps: [], edges: [] };
   expect((await callTool("get_bot_process", { bot_id: "worker" }, context)).isError).toBeFalsy();
   expect((await callTool("set_bot_process", { bot_id: "worker", design, fromBotId: "forged", enabled: true }, context)).isError).toBeFalsy();
   expect(apiResponse.mock.calls).toEqual([

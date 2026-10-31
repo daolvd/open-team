@@ -1,0 +1,151 @@
+{
+  "enabled": false,
+  "autoRun": false,
+  "autoRunWhen": "",
+  "identity": "Scope executor with independent reviewers",
+  "method": "Kanban: Spec -> Build -> parallel Review -> batched Owner decision. Map reviewer botId and strong/small models to available engine choices before enabling. Repeat this process per design, asset or runtime scope; preserve existing approval dependencies.",
+  "steps": [
+    {
+      "id": "plan",
+      "title": "Spec: plan",
+      "instruction": "Freeze the input revision and acceptance. Write an exact plan with dependencies, allowed write paths, evidence and reviewer roles. Address feedback. Do not edit production files yet.",
+      "effort": "high"
+    },
+    {
+      "id": "score",
+      "title": "Spec: independent plan score",
+      "instruction": "Independently check the plan against the request. Return FAIL if any acceptance, input, ownership or required approval is missing. PASS requires score >=90 and no veto; include vetoes in notes.",
+      "output": "verdict",
+      "criteria": "PASS only with score >=90 and no veto.",
+      "effort": "high"
+    },
+    {
+      "id": "build",
+      "title": "Build and self-check",
+      "instruction": "Implement only the approved plan within its write scope, apply feedback, run focused checks and freeze an output revision/hash. Include evidence and remaining risks.",
+      "effort": "low"
+    },
+    {
+      "id": "visual",
+      "title": "Visual review",
+      "instruction": "Independently review visual fidelity and required assets on the exact frozen build revision. Return structured verdict, severity, evidence and revision in notes. Mark N/A only with a scoped reason. Do not modify source.",
+      "output": "verdict"
+    },
+    {
+      "id": "interaction",
+      "title": "Interaction review",
+      "instruction": "Independently review main/error/back/cancel flows and real input evidence on the exact frozen build revision. Return structured verdict, severity, evidence and revision in notes. Mark N/A only with a scoped reason. Do not modify source.",
+      "output": "verdict"
+    },
+    {
+      "id": "code",
+      "title": "Code review",
+      "instruction": "Independently review correctness, safety, tests and compatibility on the exact frozen build revision. Return structured verdict, severity, evidence and revision in notes. Mark N/A only with a scoped reason. Do not modify source.",
+      "output": "verdict"
+    },
+    {
+      "id": "merge",
+      "title": "Review: aggregate",
+      "instruction": "Aggregate every required review of the same revision. A critical veto or missing acceptance evidence is FAIL regardless of vote count. Record non-blocking minor findings as follow-ups with owners. Return structured verdict and actionable feedback.",
+      "output": "verdict",
+      "join": "all",
+      "criteria": "PASS only when all required acceptance is met, with no critical veto or mixed revisions.",
+      "effort": "high"
+    },
+    {
+      "id": "owner",
+      "title": "Owner: decision batch",
+      "instruction": "Review this exact candidate, its evidence and the batched decisions. Approve promotion of this scope?",
+      "approval": {
+        "timeoutHours": 24,
+        "default": "reject"
+      }
+    },
+    {
+      "id": "deliver",
+      "title": "Deliver approved scope",
+      "instruction": "Report the approved artifact/hash, actual checks, owner decision and follow-ups. Claim only this accepted scope; record Kanban DONE only if its DoD is met."
+    },
+    {
+      "id": "escalate",
+      "title": "Escalate or wait",
+      "instruction": "Report the failed or rejected condition, evidence, exhausted attempts and exact next owner/action. Keep the scope WAITING or BLOCKED as appropriate; do not claim delivery or approval."
+    }
+  ],
+  "edges": [
+    {
+      "from": "plan",
+      "to": "score"
+    },
+    {
+      "from": "score",
+      "to": "plan",
+      "when": "verdict == FAIL or score < 90",
+      "loop": {
+        "max": 2
+      }
+    },
+    {
+      "from": "score",
+      "to": "build",
+      "when": "verdict == PASS and score >= 90"
+    },
+    {
+      "from": "score",
+      "to": "escalate",
+      "otherwise": true
+    },
+    {
+      "from": "build",
+      "to": "visual"
+    },
+    {
+      "from": "visual",
+      "to": "merge"
+    },
+    {
+      "from": "build",
+      "to": "interaction"
+    },
+    {
+      "from": "interaction",
+      "to": "merge"
+    },
+    {
+      "from": "build",
+      "to": "code"
+    },
+    {
+      "from": "code",
+      "to": "merge"
+    },
+    {
+      "from": "merge",
+      "to": "build",
+      "when": "verdict == FAIL",
+      "loop": {
+        "max": 2
+      }
+    },
+    {
+      "from": "merge",
+      "to": "owner",
+      "when": "verdict == PASS"
+    },
+    {
+      "from": "merge",
+      "to": "escalate",
+      "when": "verdict == FAIL or status == failed"
+    },
+    {
+      "from": "owner",
+      "to": "deliver",
+      "when": "verdict == PASS"
+    },
+    {
+      "from": "owner",
+      "to": "escalate",
+      "otherwise": true
+    }
+  ]
+}

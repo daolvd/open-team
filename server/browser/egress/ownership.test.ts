@@ -123,12 +123,30 @@ describe("whose listener a port is", () => {
     expect(await ownership.botOwned(8000)).toBe(true);
   });
 
-  it("answers no on other platforms", async () => {
-    const ownership = new ListenerOwnership({ sessions: () => sessions, proc: fakeProc(files(), fds), platform: "darwin" });
+  it("on macOS requires every listener to descend from a live bot engine", async () => {
+    let listeners = "p4242\nf3\np5151\nf4\n";
+    let fail = false;
+    const run = async (file: string) => {
+      if (fail) throw new Error("unavailable");
+      return file === "/usr/sbin/lsof" ? listeners : "900 1\n4242 900\n5151 4242\n77 1\n88 99\n99 88\n";
+    };
+    const ownership = new ListenerOwnership({ sessions: () => sessions, platform: "darwin", run });
+    expect(await ownership.botOwned(3000)).toBe(true);
+    for (const pids of ["", "p4242\np77\n", "p901\n", "p88\n", "p123456\n", "garbage"]) {
+      listeners = pids;
+      expect(await ownership.botOwned(3000)).toBe(false);
+    }
+    listeners = "p4242\n";
+    fail = true;
     expect(await ownership.botOwned(3000)).toBe(false);
   });
 
-  it.skipIf(process.platform !== "linux")("finds a real server a bot engine's process opened, and not this process's own", async () => {
+  it("answers no on other platforms", async () => {
+    const ownership = new ListenerOwnership({ sessions: () => sessions, proc: fakeProc(files(), fds), platform: "win32" });
+    expect(await ownership.botOwned(3000)).toBe(false);
+  });
+
+  it.skipIf(!["linux", "darwin"].includes(process.platform))("finds a real server a bot engine's process opened, and not this process's own", async () => {
     const own = createServer();
     await new Promise<void>((resolve) => own.listen(0, "127.0.0.1", resolve));
     const engine = spawnCli(process.execPath, ["-e", "require('node:net').createServer().listen(0, '127.0.0.1', function () { console.log(this.address().port); })"], { stdio: ["pipe", "pipe", "pipe"] }, "bot");

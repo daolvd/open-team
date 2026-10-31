@@ -245,6 +245,10 @@ export async function callTool(called: string, input: Json, context: ToolCallCon
     }) });
     return { text: JSON.stringify(r), ...(r.error ? { isError: true } : {}) };
   }
+  if (name === "send_telegram") {
+    const { ok, body } = await apiResponse("/api/internal/telegram", { method: "POST", body: JSON.stringify({ text: args.text }) });
+    return ok ? { text: "Sent to Telegram." } : { text: String(body.error ?? "Could not send to Telegram."), isError: true };
+  }
   if (name === "list_tasks") {
     return { text: JSON.stringify(await api("/api/internal/workflow-tasks")) };
   }

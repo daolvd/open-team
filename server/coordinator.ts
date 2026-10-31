@@ -131,6 +131,8 @@ export interface CoordinatorHost {
   chiefOf(address: RoomAddress): boolean;
   /** What the cut turn already did outward (sent, posted, paid): a turn that acted outward is not run again. */
   outward?(node: HandoffView): string[];
+  /** Delegated work the assignee's process runs step by step; undefined leaves it one ordinary turn. */
+  process?(node: HandoffView, signal: AbortSignal): Promise<HostTurnResult | undefined>;
 }
 
 export interface Coordinator {
@@ -181,6 +183,8 @@ export interface CoordinatorOptions {
   host: CoordinatorHost;
   now?: () => number;
   runtimeLimits?: Partial<Limits>;
+  /** Waits before each retry of a turn whose engine failed for a passing reason. */
+  outageRetryDelaysMs?: readonly number[];
   log?: (line: string) => void;
   legacyThreads?: LegacyThreadResolver;
 }

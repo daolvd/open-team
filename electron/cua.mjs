@@ -1,4 +1,4 @@
-// Packaged: an embedded cua-driver daemon, so macOS TCC grants attribute to OpenMausBot; dev attaches to CuaDriver.app.
+// Embedded cua-driver children inherit macOS TCC grants from the Electron host; CuaDriver.app has its own grants.
 // Agents use the stdio MCP proxy, which executes nothing; the host-owned daemon does.
 
 import { app, ipcMain } from "electron";
@@ -130,13 +130,20 @@ export function resolveWindowsDriver() {
   return null;
 }
 
+function stagedMacDriver() {
+  return path.join(app.getAppPath(), "dist-native", process.arch, "cua-driver");
+}
+
 export function resolveDriverBinary() {
   if (process.env.CUA_DRIVER_PATH) return process.env.CUA_DRIVER_PATH;
   if (app.isPackaged) {
     const bundled = path.join(process.resourcesPath, "cua-driver" + (process.platform === "win32" ? ".exe" : ""));
     if (fs.existsSync(bundled)) return bundled;
   }
-  if (process.platform === "darwin" && fs.existsSync(INSTALLED_DRIVER)) return INSTALLED_DRIVER;
+  if (process.platform === "darwin") {
+    if (fs.existsSync(INSTALLED_DRIVER)) return INSTALLED_DRIVER;
+    if (!app.isPackaged && fs.existsSync(stagedMacDriver())) return stagedMacDriver();
+  }
   if (process.platform === "win32") {
     const staged = path.join(app.getAppPath(), "dist-native", "cua-win32-x64", "cua-driver.exe");
     return fs.existsSync(staged) ? staged : resolveWindowsDriver();
@@ -274,7 +281,8 @@ export async function startCua() {
   }
 
   const wantEmbedded =
-    process.platform === "win32" || app.isPackaged || process.env.OPENMAUSBOT_CUA_EMBEDDED === "1";
+    process.platform === "win32" || app.isPackaged || process.env.OPENMAUSBOT_CUA_EMBEDDED === "1" ||
+    (process.platform === "darwin" && binary === stagedMacDriver());
   let nextConnection;
 
   if (wantEmbedded) {

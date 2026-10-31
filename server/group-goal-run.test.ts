@@ -154,6 +154,23 @@ function goalRun(options: { solo?: boolean; members?: Array<{ id: string; name: 
 }
 
 describe("one goal-run loop for a room and a one-on-one chat", () => {
+  it.each(["unavailable", "provider_failed", "dispatch_failed", "timed_out"] as const)("replans after a worker is %s and completes with another teammate", async outcome => {
+    const goal = goalRun({
+      members: [{ id: "lead", name: "Lead" }, { id: "builder", name: "Builder" }, { id: "reviewer", name: "Reviewer" }],
+      steps: [
+        settled(envelope({ status: "continue", next: "builder", instruction: "Check the build" })),
+        { ran: true, replyText: "", outcome, stopReason: "file/shell unavailable" },
+        ...(outcome === "unavailable" ? [] : [{ ran: true, replyText: "", outcome, stopReason: "file/shell unavailable" }]),
+        settled(envelope({ status: "continue", next: "reviewer", instruction: "Check with mounted browser tools" })),
+        settled("Browser evidence verified."),
+        settled(envelope({ status: "completed", detail: "Verified in browser." })),
+      ],
+    });
+    await goal.done;
+    expect(goal.finished).toEqual([{ status: "completed", detail: "Verified in browser." }]);
+    expect(goal.calls.find((call, index) => index > 0 && call.coordinator)?.instructions).toContain("file/shell unavailable");
+  });
+
   it("in a room of one the bot works in its own turns and finishes on the done marker", async () => {
     const goal = goalRun({
       solo: true,

@@ -100,6 +100,18 @@ export function BotDesignPanel({ bot }: { bot: Bot }) {
                   }
                 />
               </div>
+              <div className="space-y-3 rounded-xl bg-inset p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[13px] font-medium">{t("design.autoRun")}</div>
+                    <p className="mt-1 text-[12px] leading-5 text-ink-secondary">{t("design.autoRunHint")}</p>
+                  </div>
+                  <Switch checked={draft.autoRun} aria-label={t("design.autoRun")} onClick={() => setDraft({ ...draft, autoRun: !draft.autoRun })} />
+                </div>
+                {draft.autoRun && <label className="block text-[12px] font-medium">{t("design.autoRunWhen")}
+                  <input className={`${designInput} mt-1`} value={draft.autoRunWhen} maxLength={2000} placeholder={t("design.autoRunWhenPlaceholder")} onChange={(event) => setDraft({ ...draft, autoRunWhen: event.target.value })} />
+                </label>}
+              </div>
               <BotProcessEditor
                 saveControls={<>{saveControls}{model.error && <p role="alert" className="mt-2 text-[12px] text-danger">{model.error}</p>}</>}
                 consultants={snapshot.consultants ?? []}

@@ -232,6 +232,13 @@ const TOOL_DEFINITIONS = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "send_telegram",
+    description: "Send the person one Telegram message now, while they are away from the app. Send only what they need to act on or asked to hear: a finished result, a decision only they can make, a blocker, a failure. Never send start notices, \"still working\", \"no change\", restatements or your final reply to their Telegram message (that reply reaches them anyway). When they ask for updates on a schedule, create a when=schedule trigger whose instructions say to check real progress and call send_telegram only when something changed since the last message. Short plain text in their language. Identical messages within an hour and more than 12 an hour are refused.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      text: { type: "string", minLength: 1, maxLength: 4000, description: "The message, plain text." },
+    }, required: ["text"] },
+  },
+  {
     name: "coordinate_bots",
     description: "The one way to hand work on: ask existing OpenMausBot teammates a question or assign them concrete work. In a room it defaults to this room; use group_id from list_room_targets for a specific room. Outside a room, everything you send a teammate from this conversation goes to one standing work thread with them and runs after anything still running there; thread \"new\" opens a fresh thread on them instead. Give 1-4 bot_ids — teammate ids as list_bots or your roster prints them; a unique teammate name also resolves: they see only what you send them and use their own model, tools and permissions. They can consult their own specialists; every result returns here and resumes you automatically, so after sending all assignments END your turn: do not poll or wait, and never call assignment_status in the same turn. consult true asks a question the teammate answers from what it knows, acting on nothing; reply \"none\" is a one-way notice nothing comes back from. Include exact file paths, constraints and what must be verified (done_when). On return, resolve tradeoffs, verify the requested outcome and request concrete corrections with rework true if necessary before giving one final answer. Never target whoever assigned you this work or anyone above it: to ask or report back, end your turn and your reply resumes them. Never thank or approve a finished teammate; its result already returned. Never repeat a refused call unchanged.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
@@ -911,6 +918,7 @@ function catalogTools(profile: CatalogProfile) {
     (profile.escalations === true || tool.name !== "raise_escalation") &&
     (profile.team === true || !PERSON_TOOL_NAMES.has(tool.name)) &&
     (profile.computerSelection === true || tool.name !== "select_computer") &&
+    (profile.telegram === true || tool.name !== "send_telegram") &&
     (profile.room !== true || !CHAT_CARD_TOOL_NAMES.has(tool.name)));
   const AUTHORING_TOOLS = profile.skillAuthoring
     ? BOT_SCOPED_TOOLS

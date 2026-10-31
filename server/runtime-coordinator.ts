@@ -1,6 +1,7 @@
 import { join } from "node:path";
 
 import type { BeginTurnRequest, Coordinator, CoordinatorHost, CoordinatorOptions, HandoffOptions, HandoffView, HostTurnResult, LiveHandoffEdge, RoomAddress } from "./coordinator.ts";
+import { OUTAGE_RETRY_DELAYS_MS, outageRetryNote, outageWait, waitableEngineFailure } from "./engine-outage.ts";
 import type { WorkOrigin } from "./peer-provenance.ts";
 import { composeEnvelope, composeQuestion, composeReport, composeResume, composeRootTurn, continuationLine, envelopeNote } from "./runtime/envelope.ts";
 import { Runtime } from "./runtime/runtime.ts";
@@ -96,6 +97,7 @@ export function view(a: Assignment, parent?: Assignment): HandoffView {
 
 export class RuntimeCoordinator implements Coordinator {
   private readonly host: CoordinatorHost;
+  private readonly outageDelays: readonly number[];
   private readonly store: RuntimeStore;
   private readonly runtime: Runtime;
   private readonly legacyFile: string | undefined;
@@ -108,6 +110,7 @@ export class RuntimeCoordinator implements Coordinator {
 
   constructor(options: CoordinatorOptions) {
     this.host = options.host;
+    this.outageDelays = options.outageRetryDelaysMs ?? OUTAGE_RETRY_DELAYS_MS;
     this.legacyDir = options.dataDir === ":memory:" ? undefined : options.dataDir;
     this.legacyFile = this.legacyDir === undefined ? undefined : join(this.legacyDir, "room-handoffs.json");
     this.legacyThreads = options.legacyThreads;
@@ -486,8 +489,21 @@ export class RuntimeCoordinator implements Coordinator {
         : input.continuation ? `${continuationLine(input.continuation)}\n${input.envelope}` : input.envelope;
     const note = resumed || root ? body : envelopeNote(body);
     const evidence = (result: HostTurnResult) => result.evidence ? { evidence: result.evidence } : {};
-    const result = await this.host.run(node, resumed, signal,
+    const processed = !root && input.turn === "first" && node.mode === "work" && !node.groupId && this.host.process
+      ? await this.withHeartbeat(a.id, () => this.host.process!(node, signal)) : undefined;
+    if (processed) {
+      if (signal.aborted) return { kind: "failed", outcome: "stopped", text: processed.text };
+      return processed.ok ? { kind: "completed", text: processed.text } : { kind: "failed", outcome: "provider_error", text: processed.text };
+    }
+    let result = await this.host.run(node, resumed, signal,
       { text: `${input.restartNote}${body}`, note: `${input.restartNote}${note}`, restartNote: input.restartNote, turn: input.turn });
+    for (let attempt = 0; !result.ok && !result.stalled && !result.cap && !result.cards && !signal.aborted &&
+      attempt < this.outageDelays.length && waitableEngineFailure(result.text); attempt++) {
+      try { await outageWait(this.outageDelays[attempt]!, signal, () => this.runtime.progress(a.id)); }
+      catch { break; }
+      const retry = outageRetryNote(result.text);
+      result = await this.host.run(node, true, signal, { text: retry, note: retry, restartNote: "", turn: "continued" });
+    }
     if (signal.aborted) return { kind: "failed", outcome: "stopped", text: result.text };
     if (result.cap) return { kind: "continue", text: result.text, note: result.cap.note, ...(result.cap.handoffPath ? { handoffPath: result.cap.handoffPath } : {}), ...evidence(result) };
     if (result.cards) return { kind: "needs_input", question: result.cards.question, cards: result.cards.ids, ...evidence(result) };
@@ -495,6 +511,11 @@ export class RuntimeCoordinator implements Coordinator {
     const question = root ? undefined : needsInputQuestion(result.text);
     if (question !== undefined) return { kind: "needs_input", question, ...evidence(result) };
     return { kind: "completed", text: result.text, ...evidence(result) };
+  }
+
+  private async withHeartbeat<T>(id: string, work: () => Promise<T>): Promise<T> {
+    const heartbeat = setInterval(() => this.runtime.progress(id), 60_000);
+    try { return await work(); } finally { clearInterval(heartbeat); }
   }
 
   private live(): Assignment[] {

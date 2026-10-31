@@ -157,10 +157,10 @@ export function incidentText(incident: Incident, count: IncidentCount, retry?: I
   lines.push(count.mayRetry
     ? [
       "Decide, in this order:",
-      "1. If the cause is something only the person can fix — a sign-in, a missing credential, an unanswered question, a setting — say so here in one or two plain sentences and stop.",
+      "1. If the cause is something only the person can fix — a sign-in, a missing credential, an unanswered question, a setting — identify that dependency for this task in one or two plain sentences, then continue independent authorized work.",
       `2. Otherwise call retry_thread with bot_id "${incident.bot.id}" and thread_id "${incident.threadId}" to resume that thread where it stopped; use coordinate_bots with a corrected brief instead when the request itself needs to change.`,
       "3. Report in one or two sentences what failed and what you did. Never retry the same thread more than twice.",
     ].join("\n")
-    : "Retries for that thread are used up. Do not retry it again: say in one or two plain sentences what is blocking and what the person should do, then stop.");
+    : "Retries for that thread are used up. Do not retry it again: say in one or two plain sentences what is blocking and what the person should do. Inspect partial artifacts and use coordinate_bots with a corrected brief or a capable teammate when possible; continue independent authorized work. A missing reviewer tool is not a product defect.");
   return lines.join("\n");
 }

@@ -24,6 +24,8 @@ export interface CatalogProfile {
   computerSelection?: boolean;
   /** A room's turn: the widget and page tools, which rooms refuse, are not mounted. */
   room?: boolean;
+  /** The person's Telegram chat is listening and this bot may write to it: send_telegram is mounted. */
+  telegram?: boolean;
 }
 
 /** Everything is off unless the harness says "1". */
@@ -42,5 +44,6 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     mausbot: env.OMB_MAUSBOT === "1",
     computerSelection: env.OMB_COMPUTER_SELECTION === "1",
     room: env.OMB_ROOM === "1",
+    telegram: env.OMB_TELEGRAM === "1",
   };
 }

@@ -12,7 +12,6 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 import { hostTimeout } from "./testing/host-timeout.ts";
 import { ownTurnText } from "./testing/room-handoff-agent.ts";
-import { withAnswer } from "./testing/your-computer.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const RERUN_NOTE = "OpenMausBot restarted while your previous turn here was running";
@@ -364,12 +363,12 @@ itHost("R5 queues a member's root on the computer seat at the wait ceiling, FIFO
     await apiOk("POST", `/api/bots/${holder.id}/messages`, { text: "Hold the screen slowly.", threadId: held.threadId });
     await until(() => taskOf(holder.id, held.threadId), (task) => task?.busy === true);
     // On Auto the person is asked once before each turn first uses their computer.
-    expect(await withAnswer(base, held.threadId, gate(await dumpFor(holder.id)))).toEqual({ held: false, helpOpen: false });
+    expect(await gate(await dumpFor(holder.id))).toEqual({ held: false, helpOpen: false });
     const { bot: waiter } = await apiOk("POST", "/api/bots", { name: "Seat Waiter" });
     const { task: wait } = await apiOk("POST", `/api/bots/${waiter.id}/tasks`, {});
     await apiOk("POST", `/api/bots/${waiter.id}/messages`, { text: "R5-DIRECT: use the screen too.", threadId: wait.threadId });
     await until(() => taskOf(waiter.id, wait.threadId), (task) => task?.busy === true);
-    expect((await withAnswer(base, wait.threadId, gate(await dumpFor(waiter.id)))).held).toBe(true);
+    expect((await gate(await dumpFor(waiter.id))).held).toBe(true);
     const direct = (await until(() => rootIn(wait.threadId), (row) => row?.status === "queued"))!;
     expect(direct).toMatchObject({ status: "queued", continuation: { note: expect.stringContaining(SEAT_FREE), count: 1 } });
     rmSync(dumpFile, { force: true });

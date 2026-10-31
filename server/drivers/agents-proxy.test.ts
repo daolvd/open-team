@@ -625,6 +625,8 @@ describe("agents-proxy MCP surface", () => {
       "list_shared_computers",
       "shared_computer",
       "list_room_targets",
+      "create_task",
+      "list_tasks",
       "coordinate_bots",
       "assignment_status",
       "list_bots",
@@ -652,6 +654,8 @@ describe("agents-proxy MCP surface", () => {
       "decide",
       "extract",
       "report_bug",
+      "get_bot_process",
+      "set_bot_process",
       "memory_update",
       "retry_thread",
       "memory_log",
@@ -747,6 +751,7 @@ describe("agents-proxy MCP surface", () => {
       "list_shared_computers",
       "assignment_status", "list_bots", "list_rooms", "list_threads",
       "list_team_setup",
+      "get_bot_process",
       "session_search", "trigger_info", "skills_list",
     ];
     expect(list.result.tools.filter((tool: any) => tool.annotations?.readOnlyHint)
@@ -2095,7 +2100,7 @@ describe("standing external runtime", () => {
   it("sees the same one tool surface as every turn: the switches it sets change nothing", async () => {
     const list = await externalRpc("tools/list");
     // the main child is a Chief's turn that may pick its computer; this one is neither, so only those differ
-    const chiefOnly = ["create_bot", "list_team_setup", "list_team_library", "propose_team_setup", "propose_bot_deletion", "manage_room", "retry_thread"];
+    const chiefOnly = ["create_bot", "get_bot_process", "set_bot_process", "list_team_setup", "list_team_library", "propose_team_setup", "propose_bot_deletion", "manage_room", "retry_thread"];
     const everyTurn = (await rpc("tools/list")).result.tools.filter((tool: any) => !chiefOnly.includes(tool.name) && tool.name !== "select_computer");
     const names = list.result.tools.map((tool: any) => tool.name);
     expect(names).toEqual(everyTurn.map((tool: any) => tool.name));

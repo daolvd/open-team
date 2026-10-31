@@ -12,7 +12,7 @@ export const PROCESS_TOOL_DEFINITIONS = [
   },
   {
     name: "set_bot_process",
-    description: "Chief only: replace a managed bot's process in Design bot. Read get_bot_process first. Up to 24 steps; acyclic edges branch in parallel and join after predecessors; contains filters predecessor output. An optional step askBotId asks that reachable bot (including a Chief) for advice; instruction is the question and the reply becomes the step output. Use contains: NEEDS_DECISION to branch only when uncertain. Omit edges for sequential order. Preserves enabled; never starts a run. The person enables/runs it. For project workers use create_bot cwd or start_thread folder; memory_update saves their own durable memory across threads.",
+    description: "Chief only: replace a managed bot's process in Design bot. Read get_bot_process first. Up to 24 steps; steps without inputs start together, branches run in parallel, a join waits (join any, all or a quorum number). An edge runs always, on contains text, on when (the source verdict: verdict == PASS, score >= 90, status == failed; and/or), on an AI condition, or otherwise. output verdict ends a step with JSON {verdict,score,notes,items} judged against criteria; loop {max} reruns the same or an earlier step with that output as feedback, join parallel consumers before looping. Exhaustion needs a matching conditional escalation, not unconditional delivery. forEach runs per listed item. model/effort per step: small to follow a plan, strong to plan or check. botId hands the step to a teammate, askBotId asks advice, approval asks the person over Telegram. Omit edges for sequential order. enabled and autoRun (run on delegated work and Tasks; autoRunWhen narrows it) keep their state when omitted. Saving never starts a run.",
     inputSchema: {
       type: "object", additionalProperties: false, required: ["bot_id", "design"],
       properties: {
@@ -20,6 +20,9 @@ export const PROCESS_TOOL_DEFINITIONS = [
         design: {
           type: "object", additionalProperties: false, required: ["identity", "method", "steps"],
           properties: {
+            enabled: { type: "boolean", description: "Enable or disable the saved process. Omit to preserve its current state. Does not start a run." },
+            autoRun: { type: "boolean" },
+            autoRunWhen: { type: "string", maxLength: 2000 },
             identity: { type: "string", maxLength: 8000 },
             method: { type: "string", maxLength: 16000 },
             steps: { type: "array", maxItems: 24, items: {
@@ -28,6 +31,17 @@ export const PROCESS_TOOL_DEFINITIONS = [
                 title: { type: "string", minLength: 1, maxLength: 160 },
                 instruction: { type: "string", minLength: 1, maxLength: 8000 },
                 askBotId: { ...BOT_ID, description: "Exact reachable bot id to ask for advice, including the supervising Chief. Omit to execute with the process owner." },
+                botId: BOT_ID,
+                model: { type: "string", maxLength: 200 },
+                effort: { type: "string", enum: ["none", "low", "medium", "high", "xhigh", "max"] },
+                output: { type: "string", enum: ["text", "verdict"] },
+                criteria: { type: "string", maxLength: 4000 },
+                forEach: { type: "boolean" },
+                concurrency: { type: "integer", minimum: 1, maximum: 8 },
+                join: { type: "string", pattern: "^(any|all|[1-9][0-9]?)$" },
+                approval: { type: "object", additionalProperties: false, required: ["timeoutHours", "default"], properties: {
+                  timeoutHours: { type: "number", minimum: 0.1, maximum: 168 }, default: { type: "string", enum: ["approve", "reject"] },
+                } },
                 x: { type: "number", minimum: 0, maximum: 5000 }, y: { type: "number", minimum: 0, maximum: 5000 },
               },
             } },
@@ -35,6 +49,10 @@ export const PROCESS_TOOL_DEFINITIONS = [
               type: "object", additionalProperties: false, required: ["from", "to"], properties: {
                 from: { type: "string", minLength: 1, maxLength: 80 }, to: { type: "string", minLength: 1, maxLength: 80 },
                 contains: { type: "string", minLength: 1, maxLength: 1000 },
+                when: { type: "string", minLength: 1, maxLength: 500 },
+                condition: { type: "string", minLength: 1, maxLength: 2000 },
+                otherwise: { type: "boolean", enum: [true] },
+                loop: { type: "object", additionalProperties: false, required: ["max"], properties: { max: { type: "integer", minimum: 1, maximum: 10 } } },
               },
             } },
           },

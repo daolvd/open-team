@@ -32,6 +32,7 @@ vi.mock("../DesktopCapabilities", () => ({
 }));
 
 const { AccessSection } = await import("./AccessSection");
+const { ComputerUseControl } = await import("./ComputerUseControl");
 
 // WorkingFolder reads window.ogb?.pickFolder at render time, so window is stubbed per test.
 beforeEach(() => {
@@ -93,6 +94,33 @@ function render(bot: Bot, derived = makeDerived()) {
     createElement(StoreProvider, null, createElement(AccessSection, { bot, derived })),
   );
 }
+
+describe("computer use control", () => {
+  it.each([undefined, "browser", "local", "off"] as const)("persists the toggle from %s", (computer) => {
+    const derived = makeDerived();
+    let tree!: ReturnType<typeof ComputerUseControl>;
+    function Capture() {
+      tree = ComputerUseControl({ bot: makeBot({ computer }), patch: derived.patch });
+      return tree;
+    }
+    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(Capture)));
+    type Node = ReactElement<{ children?: ReactNode; onClick?: () => void; "aria-label"?: string; checked?: boolean }>;
+    function nodes(value: ReactNode): Node[] {
+      if (!isValidElement(value)) return [];
+      const node = value as Node;
+      return [node, ...Children.toArray(node.props.children).flatMap(nodes)];
+    }
+    const toggle = nodes(tree).find((node) => node.props["aria-label"] === "Enable computer use")!;
+    expect(toggle.props.checked).toBe(computer !== "off");
+    expect(markup).toContain('role="switch"');
+    toggle.props.onClick!();
+    expect(derived.patch).toHaveBeenCalledWith({ computer: computer === "off" ? null : "off" });
+  });
+
+  it("disables the control while a bot is working", () => {
+    expect(render(makeBot({ busy: true }))).toMatch(/aria-label="Enable computer use"[^>]*disabled=""/);
+  });
+});
 
 describe("owner tool selection status", () => {
   it("distinguishes the legacy catalog from an explicit no-tools selection", () => {

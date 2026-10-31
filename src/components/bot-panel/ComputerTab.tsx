@@ -13,6 +13,7 @@ import { LocalComputerAutoWarning } from "../LocalComputerAutoWarning";
 import { usePlaceViews } from "../PlaceChip";
 import { screenFramePreview } from "../ScreenFrame";
 import type { BotPatch, useBotSettingsDerived } from "../bot-settings/useBotSettingsDerived";
+import { ComputerUseControl } from "../bot-settings/ComputerUseControl";
 import type { SimplePageId } from "./page-registry";
 import { Card, NavRow, RadioRow } from "./rows";
 
@@ -140,6 +141,7 @@ export function ComputerTab({ bot, derived, onOpen }: { bot: Bot; derived: Deriv
 
   return (
     <div data-panel-tabpanel="computer">
+      <Card><div className="p-3"><ComputerUseControl bot={bot} patch={derived.patch} /></div></Card>
       <button
         type="button"
         data-panel-action="open-computer"

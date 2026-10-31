@@ -77,7 +77,11 @@ it("lets a Chief create a project worker and author its process through MCP whil
       { expectContextIncludes: [fact], reply: "Report: harbor-lime verified." },
     ] };
     writeFileSync(planPath, JSON.stringify(plans));
-    await api("PUT", path, { ...saved.design, enabled: true });
+    await run(chief, chief.activeTaskId, "Enable the saved worker process.", {
+      steps: [step("set_bot_process", { bot_id: worker.id, design: { ...saved.design, enabled: true } })],
+      reply: "Enabled the worker process.",
+    });
+    expect(await api("GET", path)).toMatchObject({ design: { enabled: true }, runs: [] });
     await api("POST", `${path}/run`, { input: "Inspect fixture project" }, 202);
     await expect.poll(async () => (await api("GET", path)).runs[0]?.status, { timeout: 35_000 }).toBe("completed");
     const completed = (await api("GET", path)).runs[0];

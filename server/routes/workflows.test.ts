@@ -50,6 +50,7 @@ async function serve(
   auth: RequestAuth = { kind: "loopback", scopes: ["admin", "client"] },
   reuse?: string,
   telegramFetch?: typeof fetch,
+  coordinatorFor?: (botId: string) => string | undefined,
 ) {
   const dataDir = reuse ?? mkdtempSync(join(tmpdir(), "omb-workflows-"));
   if (!reuse) folders.push(dataDir);
@@ -59,6 +60,7 @@ async function serve(
       available: (id) => ["lead", "a", "b", "c", "d"].includes(id),
       run,
       telegramFetch,
+      coordinatorFor,
     }),
   ];
   workers.push(() => routes[0]!.stop());
@@ -159,6 +161,80 @@ it("reports malformed AI decisions as failures instead of silently skipping a bo
   expect(run.routing?.[0]).toMatchObject({ status: "failed", error: expect.stringMatching(/decision/i) });
 });
 
+it("lets the lead choose root steps by their request rules before any step runs", async () => {
+  const calls: string[] = [];
+  const app = await serve(async (node, prompt, opened) => {
+    calls.push(node.id);
+    opened(`thread-${node.id}`);
+    if (node.id === "route:input") {
+      expect(node.botId).toBe("lead");
+      expect(prompt).toContain("Implement feature");
+      expect(prompt).toContain("Drawing and UI design");
+      expect(prompt).toContain("Invoices and accounting");
+      expect(prompt).not.toContain('"id":"c"');
+      return '```json\n{"selected":["a"],"reason":"Yêu cầu thiết kế"}\n```';
+    }
+    return node.id === "summary" ? "Đã xong" : `done ${node.id}`;
+  });
+  const routed: WorkflowDocument = {
+    ...workflow,
+    nodes: workflow.nodes.map(n => n.id === "a" ? { ...n, when: "Drawing and UI design" } : n.id === "b" ? { ...n, when: "Invoices and accounting" } : n),
+    edges: [{ from: "a", to: "c" }, { from: "b", to: "d" }],
+  };
+  expect((await app.save(routed)).status).toBe(200);
+  await app.start();
+  await expect.poll(async () => (await app.get()).runs[0]?.status).toBe("completed");
+  const run = (await app.get()).runs[0]!;
+  expect(calls).toEqual(["route:input", "a", "c", "summary"]);
+  expect(run.selection).toEqual({ status: "completed", threadId: "thread-route:input", selected: ["a"], reason: "Yêu cầu thiết kế" });
+  expect(run.steps.b).toEqual({ status: "skipped", reason: "Not chosen for this request. Yêu cầu thiết kế" });
+  expect(run.steps.d).toMatchObject({ status: "skipped" });
+  expect(run.steps.c).toMatchObject({ status: "completed" });
+});
+
+it("has the lead handle a request no step rule applies to", async () => {
+  const prompts: Record<string, string> = {};
+  const app = await serve(async (node, prompt) => {
+    prompts[node.id] = prompt;
+    if (node.id === "route:input") return '{"selected":[],"reason":"Không có bot chuyên trách"}';
+    return node.id === "summary" ? "Lead đã tự làm" : "unexpected";
+  });
+  await app.save({ ...workflow, nodes: workflow.nodes.slice(0, 2).map(n => ({ ...n, when: `Requests for ${n.id}` })), edges: [] });
+  await app.start();
+  await expect.poll(async () => (await app.get()).runs[0]?.status).toBe("completed");
+  const run = (await app.get()).runs[0]!;
+  expect(Object.keys(prompts)).toEqual(["route:input", "summary"]);
+  expect(prompts.summary).toContain("Handle the request yourself");
+  expect(prompts.summary).toContain("Không có bot chuyên trách");
+  expect(run.summary).toBe("Lead đã tự làm");
+  expect(run.selection?.selected).toEqual([]);
+});
+
+it.each([
+  ['{"selected":["zzz"],"reason":"x"}', /unknown steps: zzz/],
+  ["I think step a", /Invalid request routing/],
+])("fails the run when request routing is unusable: %s", async (reply, error) => {
+  const calls: string[] = [];
+  const app = await serve(async node => {
+    calls.push(node.id);
+    return node.id === "route:input" ? reply : "ok";
+  });
+  await app.save({ ...workflow, nodes: [{ ...workflow.nodes[0]!, when: "Design" }], edges: [] });
+  await app.start();
+  await expect.poll(async () => (await app.get()).runs[0]?.status).toBe("failed");
+  const run = (await app.get()).runs[0]!;
+  expect(calls).toEqual(["route:input"]);
+  expect(run.selection).toMatchObject({ status: "failed", error: expect.stringMatching(error) });
+  expect(run.error).toMatch(error);
+});
+
+it("rejects a request rule on a step with an incoming connection", async () => {
+  const app = await serve(async () => "ok");
+  const response = await app.save({ ...workflow, nodes: workflow.nodes.map(n => n.id === "c" ? { ...n, when: "Design" } : n) });
+  expect(response.status).toBe(400);
+  expect((await response.json() as { error: string }).error).toMatch(/without incoming connections/);
+});
+
 it("persists the graph, runs roots concurrently, routes matching text and produces a lead summary", async () => {
   const calls: string[] = [];
   let release!: () => void;
@@ -171,7 +247,7 @@ it("persists the graph, runs roots concurrently, routes matching text and produc
     expect(prompt).toContain("Implement feature");
     if (node.id === "b") release();
     if (["a", "b"].includes(node.id)) await bothRoots;
-    if (node.id === "c") expect(prompt).toContain('"result":"GO"');
+    if (node.id === "c") expect(prompt).toContain("GO\n</result>");
     return node.id === "summary" ? "Team finished" : "GO";
   });
   expect((await app.save(workflow)).status).toBe(200);
@@ -522,10 +598,8 @@ it("routes Telegram input from the selected step and sends task receipts, output
     threadId: "thread-summary",
   });
   expect(sent.every((message) => message.chat_id === "123")).toBe(true);
-  expect(sent.map((message) => message.text).join("\n")).toMatch(
-    /Step completed:[\s\S]*GO: entry output[\s\S]*downstream output[\s\S]*lead summary/,
-  );
-  expect(sent.some(message => /Task queued:|Task started:|Step started:|Workflow started:/.test(message.text))).toBe(false);
+  expect(sent.map((message) => message.text)).toEqual(["Workflow completed: Review\n\nlead summary"]);
+  expect(app.routes.telegramBots()).toEqual({ workflowBotIds: ["lead", "a", "b", "c", "d"] });
   fail = true;
   push(2);
   await expect
@@ -539,7 +613,7 @@ it("routes Telegram input from the selected step and sends task receipts, output
   const text = sent.map((message) => message.text).join("\n");
   expect(text).toContain("Step failed:");
   expect(text).toContain("fixture step failed");
-  expect(text).toContain("Step skipped:");
+  expect(text).not.toContain("Step skipped:");
   await app.request("/tasks", "POST", {
     title: "App task",
     input: "work",
@@ -581,10 +655,134 @@ it("routes Telegram input from the selected step and sends task receipts, output
   expect((await app.get()).workflow.enabled).toBe(false);
   expect((await app.tasks()).tasks.find(task => task.title === "Paused workflow")?.status).toBe("queued");
   await expect.poll(() => sent.filter(message => message.text === "lead summary").length).toBe(2);
+  expect(app.routes.telegramBots()).toEqual({ targetBotId: "b", workflowBotIds: [] });
+  const before = sent.length;
+  expect(await app.routes.sendBotTelegram({ text: "Build 12 passed; waiting for your art approval." })).toBe("sent");
+  expect(await app.routes.sendBotTelegram({ text: "Build 12  passed; waiting for your art approval. " })).toBe("repeated");
+  for (let i = 0; i < 11; i++) expect(await app.routes.sendBotTelegram({ text: `Result ${i}` })).toBe("sent");
+  expect(await app.routes.sendBotTelegram({ text: "One too many" })).toBe("limited");
+  await expect(app.routes.sendBotTelegram({ text: " " })).rejects.toThrow("Provide text");
+  expect(sent.slice(before).map(message => message.text)).toEqual([
+    "Build 12 passed; waiting for your art approval.", ...Array.from({ length: 11 }, (_, i) => `Result ${i}`),
+  ]);
   app.stopWorker();
+  expect(app.routes.telegramBots()).toBeNull();
+  expect(await app.routes.sendBotTelegram({ text: "After stop" })).toBe("offline");
   expect((await app.get()).telegram.state).toBe("paused");
   app.startWorker();
   await expect.poll(async () => (await app.get()).telegram.state).toBe("listening");
   await app.request("/telegram", "DELETE");
   expect((await app.get()).telegram.connected).toBe(false);
+});
+
+it("runs tasks for different bots side by side and one task at a time per bot", async () => {
+  const gates = new Map<string, () => void>();
+  const started: string[] = [];
+  const app = await serve(async (node, prompt) => {
+    started.push(`${node.botId}:${prompt}`);
+    await new Promise<void>((resolve) => gates.set(prompt, resolve));
+    return `${prompt} done`;
+  });
+  app.startWorker();
+  for (const [title, targetBotId] of [["a1", "a"], ["a2", "a"], ["b1", "b"], ["c1", "c"]] as const)
+    await app.request("/tasks", "POST", { title, input: title, targetBotId });
+  await expect.poll(() => started.sort()).toEqual(["a:a1", "b:b1", "c:c1"]);
+  gates.get("b1")!();
+  await expect.poll(async () => (await app.tasks()).tasks.find((task) => task.title === "b1")?.status).toBe("completed");
+  expect(started).not.toContain("a:a2");
+  gates.get("a1")!();
+  await expect.poll(() => started).toContain("a:a2");
+  gates.forEach((release) => release());
+  await expect.poll(async () => (await app.tasks()).tasks.every((task) => task.status === "completed")).toBe(true);
+});
+
+it("recovers a failed department task through its Chief while independent work continues", async () => {
+  const calls: string[] = [];
+  const app = await serve(async (node, prompt, opened) => {
+    calls.push(node.botId);
+    opened(`thread-${node.id}`);
+    if (node.botId === "a") throw new Error("Reviewer has no file/shell tool");
+    if (node.botId === "lead") {
+      expect(prompt).toContain("Reviewer has no file/shell tool");
+      app.routes.createBotTask({ botId: "lead", threadId: `thread-${node.id}`, canAssign: id => id === "c" },
+        { title: "Browser verification", input: "Verify using browser tools", targetBotId: "c" });
+    }
+    return "Evidence checked";
+  }, undefined, undefined, undefined, id => id === "a" ? "lead" : undefined);
+  await app.request("/tasks", "POST", { title: "Review", input: "Check app", targetBotId: "a" });
+  await app.request("/tasks", "POST", { title: "Independent", input: "Build asset", targetBotId: "b" });
+  app.startWorker();
+  await expect.poll(async () => (await app.tasks()).tasks.some(t => t.title === "Browser verification" && t.status === "completed")).toBe(true);
+  const tasks = (await app.tasks()).tasks;
+  const failed = tasks.find(t => t.title === "Review")!;
+  expect(failed).toMatchObject({ status: "failed", error: "Reviewer has no file/shell tool" });
+  expect(tasks.find(t => t.id === failed.recoveryTaskId)).toMatchObject({ targetBotId: "lead", recoveryForTaskId: failed.id, status: "completed" });
+  expect(tasks.find(t => t.title === "Independent")?.status).toBe("completed");
+  expect(calls.sort()).toEqual(["a", "b", "c", "lead"]);
+  app.stopWorker();
+  const restarted = await serve(async () => { throw new Error("Must not replay finished work"); }, undefined, app.dataDir, undefined, () => "lead");
+  restarted.startWorker();
+  expect((await restarted.tasks()).tasks).toHaveLength(4);
+});
+
+it("reconciles interrupted work once after restart without replaying the failed action", async () => {
+  const app = await serve(async () => "unused");
+  const task = { id: "interrupted", title: "Publish", input: "Publish artifact", targetBotId: "a", priority: "normal", source: "ui", status: "running", createdAt: 1 };
+  writeFileSync(join(app.dataDir, "workflows.json"), JSON.stringify({ workflow, runs: [], tasks: [task] }));
+  const calls: string[] = [];
+  const restarted = await serve(async (node, prompt) => {
+    calls.push(node.botId);
+    expect(prompt).toContain("interrupted");
+    return "Inspected existing artifacts; no duplicate publish";
+  }, undefined, app.dataDir, undefined, () => "lead");
+  restarted.startWorker();
+  await expect.poll(async () => (await restarted.tasks()).tasks.some(t => t.targetBotId === "lead" && t.status === "completed")).toBe(true);
+  expect(calls).toEqual(["lead"]);
+  expect((await restarted.tasks()).tasks.find(t => t.id === "interrupted")?.status).toBe("interrupted");
+});
+
+it("does not loop a failed reconciliation or send work to an unavailable Chief", async () => {
+  const calls: string[] = [];
+  const app = await serve(async node => {
+    calls.push(node.botId);
+    if (node.botId !== "c") throw new Error("Sign-in required");
+    return "Independent work completed";
+  }, undefined, undefined, undefined, id => id === "a" ? "lead" : "unavailable-chief");
+  for (const targetBotId of ["a", "b", "c"]) await app.request("/tasks", "POST", { title: targetBotId, input: "Work", targetBotId });
+  app.startWorker();
+  await expect.poll(async () => (await app.tasks()).tasks.filter(t => t.status === "failed").length).toBe(3);
+  const tasks = (await app.tasks()).tasks;
+  expect(tasks).toHaveLength(4);
+  expect(calls.sort()).toEqual(["a", "b", "c", "lead"]);
+  expect(tasks.find(t => t.targetBotId === "c")?.status).toBe("completed");
+  expect(tasks.find(t => t.targetBotId === "b")?.recoveryTaskId).toBeUndefined();
+  expect(tasks.find(t => t.targetBotId === "lead")?.recoveryPending).toBeUndefined();
+});
+
+it("hands a bot's app and bot tasks to its process and keeps Telegram chat as a turn", async () => {
+  const processed: string[] = [];
+  const turns: string[] = [];
+  const dataDir = mkdtempSync(join(tmpdir(), "omb-workflows-"));
+  folders.push(dataDir);
+  const routes = createWorkflowRoutes({
+    dataDir,
+    available: () => true,
+    run: async (_node, prompt) => { turns.push(prompt); return "turn"; },
+    process: async (botId, input) => {
+      processed.push(`${botId}:${input}`);
+      return input === "fail" ? { ok: false, text: "The process failed: Build: tests red" } : botId === "a" ? { ok: true, text: "process output" } : undefined;
+    },
+  });
+  workers.push(() => routes.stop());
+  routes.start();
+  routes.createBotTask({ botId: "lead", threadId: "t", canAssign: () => true }, { title: "Ship", input: "ship it", targetBotId: "a" });
+  routes.createBotTask({ botId: "lead", threadId: "t", canAssign: () => true }, { title: "Plain", input: "plain", targetBotId: "b" });
+  routes.createBotTask({ botId: "lead", threadId: "t", canAssign: () => true }, { title: "Broken", input: "fail", targetBotId: "c" });
+  await expect.poll(() => routes.botTasks("a").concat(routes.botTasks("b"), routes.botTasks("c")).every((task) => task.status !== "queued" && task.status !== "running")).toBe(true);
+  const byTitle = (title: string) => routes.botTasks("lead").find((task) => task.title === title)!;
+  expect(byTitle("Ship")).toMatchObject({ status: "completed", result: "process output" });
+  expect(byTitle("Plain")).toMatchObject({ status: "completed", result: "turn" });
+  expect(byTitle("Broken")).toMatchObject({ status: "failed", error: "The process failed: Build: tests red" });
+  expect(processed.sort()).toEqual(["a:ship it", "b:plain", "c:fail"]);
+  expect(turns).toEqual(["plain"]);
 });

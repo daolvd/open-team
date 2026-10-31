@@ -244,6 +244,7 @@ import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from ".
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { chiefEscalationsEnabled, NEEDS_INPUT_GATE, peerApprovalGate, RAISED_GATE } from "./escalations.ts";
 import { createChiefNotices } from "./host/chief-notices.ts";
+import { chiefForBot } from "./incidents.ts";
 import { needsInputQuestion } from "./runtime-coordinator.ts";
 
 const SESSION_READ_MAX_CHARS = 8_000;
@@ -418,7 +419,7 @@ import { shellTimeoutHookResult } from "./shell-timeout-hint.ts";
 import { spillToolResult } from "./tool-result-spill.ts";
 import { gatedLocalComputer } from "./local-computer.ts";
 import { desktopComputer, thisComputerNotReady } from "./desktop-computer.ts";
-import { askToUseYourComputer, cancelYourComputerAsks, dismissStaleYourComputerCards, yourComputerCallFrom, yourComputerWaiting } from "./your-computer-consent.ts";
+import { cancelYourComputerAsks, dismissStaleYourComputerCards, yourComputerCallFrom, yourComputerWaiting } from "./your-computer-consent.ts";
 import { discoverExistingPerBotLocalVms, localVmInventoryEntry } from "./local-vm-inventory.ts";
 import { createLocalVmUpdater, LOCAL_VM_UPDATING_PROBLEM, recoverLocalVms, VPS_OUTDATED_HINT, vpsDesktopOutdated, withoutHostWhileUpdating } from "./desktop-updates.ts";
 import { keepInstalledAppsBeforeRemove } from "./local-vm-profiles.ts";
@@ -1847,6 +1848,16 @@ const MAX_COMMS_DEPTH = 1;
 const MAX_WORKSPACE_BOTS = 100;
 const phoneProxyPath = SPAWNED_PROXIES.phone;
 
+/** The Telegram chat's own bot, the teammates it manages, or a Telegram workflow's bots. */
+function reachesTelegram(botId: string): boolean {
+  const reach = workflowRoutes.telegramBots();
+  const bot = store.bot(botId);
+  if (!reach || !bot || bot.hidden) return false;
+  if (!reach.targetBotId) return reach.workflowBotIds.includes(botId);
+  const owner = store.bot(reach.targetBotId);
+  return Boolean(owner && !owner.hidden && (owner.id === botId || canManage(owner, bot)));
+}
+
 function agentsIntegration(
   botId: string,
   threadId: string,
@@ -1887,6 +1898,7 @@ function agentsIntegration(
         return tts.voiceReady(cfg, speaking?.voice) && speaking?.voiceNotes !== false ? "1" : "0";
       })(),
       OMB_X_RESEARCH: researchCredential(cfg.treg?.key) && store.bot(botId)?.xResearch !== false ? "1" : "0",
+      OMB_TELEGRAM: reachesTelegram(botId) ? "1" : "0",
       ...roleToolEnv(store.bot(botId)),
       OMB_ESCALATIONS: chiefEscalationsEnabled(cfg) ? "1" : "0", OMB_COMPUTER_SELECTION: computerSelectionTurns.get(threadId)?.generation === generation ? "1" : "0",
     },
@@ -1979,6 +1991,7 @@ type DirectTurnOutcome = HostTurnResult;
 const directFollowupTurns = new ProviderTurnGenerationRegistry<DirectTurnOutcome>();
 const directFollowupSettlers = new Map<string, { threadId: string; settle?: () => void }>();
 const directCoordinationSettlers = new Map<string, { nodeId: string; settle: (outcome: DirectTurnOutcome) => void }>();
+const externallySettledCompletions = new WeakSet<RuntimeEvent>();
 const computerParks = new Map<string, string>();
 const parkedSeats = new Map<string, string>();
 const COMPUTER_FREE_NOTE = "OpenMausBot computer update: the computer this conversation waited for is free again. Continue the task that parked waiting for it.";
@@ -2974,6 +2987,8 @@ try {
 if (browserCleanupReferencesReconciled) browserCleanup.startPending();
 
 let threadsAwaitingTeammates = (): ReadonlySet<string> => new Set<string>();
+// Assigned once the bot process service exists, after the coordinator that calls it.
+let processWork: ((botId: string, input: string, signal: AbortSignal) => Promise<{ ok: boolean; text: string } | undefined>) | undefined;
 let cacheKeepWarmStatus = (_threadId: string): KeepWarmStatus | undefined => undefined;
 const wireTask = (task: TaskRecord, botModel: ModelSelection, awaiting = threadsAwaitingTeammates()): WireTask => {
   // Snoozes heal on read against the server clock; the 0 sentinel ("until new activity") survives reads.
@@ -4172,6 +4187,10 @@ const coordinator: Coordinator = createCoordinator({
       }
       return outwardActions(turnRows(node));
     },
+    process: async (node, signal) => {
+      const result = await processWork?.(node.botId, node.text, signal);
+      return result && { ok: result.ok, text: result.text };
+    },
   },
 });
 threadsAwaitingTeammates = () => coordinator.awaitingTeammateThreads();
@@ -5108,7 +5127,7 @@ const watchdog = new TurnWatchdog({
       kind: "activity",
       tool: failedTurnTool(cause),
     });
-    if (bot && routineRun?.target !== "bot") {
+    if (bot && routineRun?.target !== "bot" && !directCoordinationSettlers.has(stalledGeneration ?? "")) {
       reportIncident({ kind: "stalled", bot, threadId: turn.threadId, detail: cause });
     }
     settleDirectFollowup(stalledGeneration, { ok: false, text: stalled, stalled: true });
@@ -5166,6 +5185,7 @@ bus.subscribe((event: RuntimeEvent) => {
   else if (event.type === "turn.wait_started") watchdog.setWaitingOnComputer(event.threadId, true);
   else if (event.type === "turn.wait_ended") watchdog.setWaitingOnComputer(event.threadId, false);
   else if (event.type === "turn.completed") {
+    if (directCoordinationSettlers.has(directTurnGenerationByThread.get(event.threadId) ?? "")) externallySettledCompletions.add(event);
     watchdog.settle(event.threadId);
     revokeInternalCapabilityForProviderEvent(event);
     if (event.turnId && store.botByThread(event.threadId)) {
@@ -5913,8 +5933,7 @@ function cloudComputerTools(botId: string, owner: TurnOwner, boxId: string | nul
   };
 }
 
-/** `ask`: the person did not pick this computer themselves (an Auto pin), so the first screen call asks them once. */
-async function mountHostComputer(owner: TurnOwner, botId: string, providerSupportsLocal: boolean, onRejected: (failure: string, error?: unknown) => void, ask = false) {
+async function mountHostComputer(owner: TurnOwner, botId: string, providerSupportsLocal: boolean, onRejected: (failure: string, error?: unknown) => void) {
   if (!shouldMountLocalComputer({ requested: "local", hostPlatform: process.platform, providerSupportsLocal })) {
     throw new Error(providerSupportsLocal
       ? "bots can't use this computer on this system — choose another place for this bot to work"
@@ -5925,7 +5944,7 @@ async function mountHostComputer(owner: TurnOwner, botId: string, providerSuppor
   await bindTurnComputer(owner, "computer:host");
   autoVmClaims.set(owner.threadId, {
     owner, lazy: true, label: "this computer", onRejected,
-    claim: async (call) => { if (ask) await askToUseYourComputer(approvalBus, store.bot(botId) ?? undefined, owner, call); await bindTurnComputer(owner, "computer:host", true); },
+    claim: async () => { await bindTurnComputer(owner, "computer:host", true); },
   });
   return gatedLocalComputer(cua, controlIntegration(botId, owner.threadId, owner.generation, "this computer"));
 }
@@ -6790,6 +6809,7 @@ bus.subscribe((event: RuntimeEvent) => {
       }
       break;
     case "turn.completed": {
+      const externallySettled = externallySettledCompletions.has(event);
       askCards.settleWaitingOnPersonChips(event.threadId);
       const internal = isInternalTurn(event.threadId);
       clearInternalTurn(event.threadId);
@@ -6861,7 +6881,7 @@ bus.subscribe((event: RuntimeEvent) => {
       const capContinues = !event.ok && turnStops.read(event.threadId, completedTurnId)?.handoffPath !== undefined;
       // Judged now: an assignment reports its own failure, and has ended by the time the thread settles.
       const failed = !event.ok && !stopped && !lazyClaimAlreadyReported && !computerParked && !capContinues && !routineRun && !activeRoutineRunForThread(event.threadId);
-      const broken = failed && !coordinator.assignerOf(event.threadId) ? bot ?? (speaker ? store.bot(speaker.botId) : undefined) : undefined;
+      const broken = failed && !externallySettled && !coordinator.assignerOf(event.threadId) ? bot ?? (speaker ? store.bot(speaker.botId) : undefined) : undefined;
       const failureDetail = turnStops.failureCause(event) ?? "the run ended without a result";
       // Filed once the thread has settled, so the Chief's retry finds it free. A turn the person stopped is cancelled, whatever its engine said.
       const facts = { ...turnStops.read(event.threadId, event.turnId)?.flags, stopReason: directRequestOwners.get(event.threadId)?.stopped ? "cancelled" : event.stopReason };
@@ -8199,7 +8219,7 @@ async function startTurn(
           kind: "activity",
           tool: failedTurnTool(message, placeFailure ? { place: placeFailure.row } : {}),
         });
-        if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) {
+        if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation && !opts?.onSettled && !opts?.coordination) {
           notify(buildNotification("turn-failed", bot, threadId, redactSecretsInText(message), { avatarUrl: bot.avatarUrl }));
           reportIncident({ kind: "could-not-start", bot, threadId, detail: message });
           // Claude settles the interrupt below as exit_before_result; the completion fold must not report it a second time.
@@ -8302,7 +8322,7 @@ async function startTurn(
         if (wants === "vm") {
           if (await attachLocalVm(true)) computerKind = "vm";
         } else if (wants === "local") {
-          integrations.localComputer = await mountHostComputer(resourceOwner, bot.id, mountsLocalComputer, surfaceLazyClaimRejection("this computer"), placeSource === "auto-pin");
+          integrations.localComputer = await mountHostComputer(resourceOwner, bot.id, mountsLocalComputer, surfaceLazyClaimRejection("this computer"));
           computerKind = "local";
         }
 
@@ -8380,8 +8400,7 @@ async function startTurn(
             lazy: true,
             label: "this computer",
             onRejected: surfaceLazyClaimRejection("this computer"),
-            claim: async (call) => {
-              await askToUseYourComputer(approvalBus, bot, resourceOwner, call);
+            claim: async () => {
               await bindTurnComputer(resourceOwner, "computer:host", true);
               pinAutoSurface("local"); recordTurnPlace(bot.id, threadId, "local");
             },
@@ -8747,7 +8766,7 @@ async function startTurn(
         turnSucceeded: false,
         tool: failedTurnTool(message, e instanceof PlaceUnavailableError ? { place: e.row } : e instanceof TurnUsageLimitRefusedError ? { limitResetsAt: e.resetsAt } : {}),
       });
-      if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) {
+      if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation && !opts?.onSettled && !opts?.coordination) {
         notify(
           buildNotification("turn-failed", bot, threadId, redactSecretsInText(message), { avatarUrl: bot.avatarUrl }),
         );
@@ -12290,6 +12309,13 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 const workflowRoutes = createWorkflowRoutes({
   dataDir: DATA_DIR,
+  coordinatorFor: (botId) => {
+    const bot = store.bot(botId);
+    if (!bot || bot.hidden || bot.movedTo) return undefined;
+    const chief = chiefForBot(store.bots, bot);
+    return chief && !chief.movedTo && canManage(chief, bot) ? chief.id : undefined;
+  },
+  process: (botId, input) => processWork ? processWork(botId, input, new AbortController().signal) : Promise.resolve(undefined),
   available: (id) => { const bot = store.bot(id); return Boolean(bot && !bot.hidden); },
   run: async (node, prompt, opened, resumeThreadId, interaction) => {
     const bot = store.bot(node.botId);
@@ -12300,7 +12326,7 @@ const workflowRoutes = createWorkflowRoutes({
     opened(task.threadId);
     const threadId = task.threadId;
     return runWorkflowConversation({
-      prompt: interaction ? `${prompt}\n\nThe person is using Telegram on a phone. Use ask_user for forms or questions, with one question per field and options where useful; wait for their answers. Attach deliverables or link files in Markdown so they can receive them. Never request passwords or tokens in Telegram.` : prompt,
+      prompt: interaction ? `${prompt}\n\nThe person is using Telegram on a phone. Use ask_user for forms or questions, with one question per field and options where useful; wait for their answers. Attach deliverables or link files in Markdown so they can receive them. Updates they ask to receive later or on a schedule go out with send_telegram, only when something changed. Never request passwords or tokens in Telegram.` : prompt,
       interaction,
       cancel: () => { void stopThreadForPerson(bot.id, threadId); },
       messages: () => store.messagesFor(threadId),
@@ -12359,12 +12385,15 @@ const botDesigns = createBotDesignService({
   dataDir: DATA_DIR,
   consultants: (id) => { const bot = store.bot(id); return bot ? reachablePeers(store.bots, bot).filter((peer) => !peer.movedTo).map(({ id, name }) => ({ id, name })) : []; },
   available: (id) => { const bot = store.bot(id); assertBotHere(bot); return Boolean(bot && !bot.hidden); },
-  run: async (botId, prompt, opened, threadId, signal) => {
+  run: async (botId, prompt, opened, threadId, signal, options) => {
     const bot = store.bot(botId);
     assertBotHere(bot);
     if (!bot || bot.hidden) throw new Error("Bot unavailable");
-    const task = (threadId && store.taskByThread(bot.id, threadId)) || store.createTask(bot.id, "Process run", false);
+    const task = (threadId && store.taskByThread(bot.id, threadId)) || store.createTask(bot.id, options?.title ?? "Process run", false);
     if (!task) throw new Error("Cannot open process conversation");
+    const stepModel = options?.model || options?.effort
+      ? { ...bot.modelSelection, ...(options.model ? { model: options.model } : {}), ...(options.effort ? { effort: options.effort } : {}) } : undefined;
+    if (stepModel || task.modelSelection) store.patchTask(bot.id, task.threadId, { modelSelection: stepModel });
     while (botAtThreadCapacity(bot.id, task.threadId)) {
       signal?.throwIfAborted();
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
@@ -12396,8 +12425,16 @@ const botDesigns = createBotDesignService({
     if (!writer) throw new Error("This engine has no setup assistant. Edit the process directly or select another engine.");
     return writer.generateText(prompt, { signal, timeoutMs: 85000 });
   },
+  judge: async (botId, prompt, signal) => {
+    assertWithinBudget(cfg, DATA_DIR);
+    const writer = sideJobs.text("setup-suggestions", botId);
+    if (!writer) throw new Error("This engine cannot judge process conditions. Use a verdict check instead.");
+    return writer.generateText(prompt, { signal, timeoutMs: 85000 });
+  },
+  askOwner: (title, question, signal, timeoutMs) => workflowRoutes.askOwner(title, question, signal, timeoutMs),
 });
 ROUTES.push(botDesigns.routes);
+processWork = botDesigns.runForWork;
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses })); ROUTES.push(createWorkspaceBannerRoutes({ changed: () => broadcast({ kind: "config", ...configStatus() }) }));
 ROUTES.push(createSharedComputerRoutes({ enabled: lendingEnabled, computers: sharedComputers, sessionLive: (id) => sessions.isLive(id), environmentId: ENVIRONMENT_ID,
   cloudHomeLender: CLOUD_HOME ? CLOUD_HOME_LENDER : null, principal: sessionLendingPrincipal, personKey, power: () => cloudPower, links: CLOUD_HOME ? deviceLinks : null, upgrades }));
@@ -13320,6 +13357,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 201, { task, note: "Queued in Tasks. Bot tasks run without enabling the workflow while the server is running. Finish your turn; read list_tasks in a later turn for results." });
         }
         return json(res, 405, { error: "Method not allowed" });
+      }
+      if (path === "/api/internal/telegram" && method === "POST") {
+        requireActiveInternalCapability();
+        const body = await readInternalBody();
+        if (!reachesTelegram(internalSender.id)) return json(res, 403, { error: "Telegram is not connected for this bot." });
+        try {
+          const outcome = await workflowRoutes.sendBotTelegram(body);
+          return json(res, outcome === "sent" ? 200 : 409, outcome === "sent" ? { sent: true } : { sent: false, error: {
+            repeated: "Not sent: the same message already went to Telegram in the last hour.",
+            limited: "Not sent: 12 Telegram messages already went out in the last hour. Send only results, decisions and blockers.",
+            offline: "Not sent: Telegram is not listening right now.",
+          }[outcome] });
+        } catch (error) {
+          const status = (error as { status?: number }).status;
+          return json(res, status ?? 502, { sent: false, error: status ? (error as Error).message : "Telegram delivery failed. Check the token and chat access." });
+        }
       }
       const botFolders = async () => ({ roots: messageFileRootsForThread(internalSender.id, internalCapability.threadId).filter((root) => root !== ATTACHMENTS_DIR), vmWorkspace: (await attachmentVmForTurn(internalCapability))?.workspaceDir ?? null }); if (await internalToolRoutes({ method, path, res, json, botId: internalSender.id, readBody: readInternalBody, folders: botFolders }) !== PASS || await teamMessages.internal({ method, path, res, json, botId: internalSender.id, threadId: internalCapability.threadId, readBody: readInternalBody }) !== PASS || await devsReports.internal({ method, path, res, json, botId: internalSender.id, threadId: internalCapability.threadId, readBody: readInternalBody }) !== PASS) return; const pagesCall = new AbortController(); res.once("close", () => { if (!res.writableEnded) pagesCall.abort(); }); if (await publishedPages.internal({ method, path, res, json, botId: internalSender.id, threadId: internalCapability.threadId, readBody: readInternalBody, requireActive: requireActiveInternalCapability, signal: pagesCall.signal, folders: botFolders, post: (text, publishedPage, bundle) => { const source = connectorThread(internalSender.id, internalCapability.threadId); return !source ? null : (!source.group && bundle && publishedPages.show({ threadId: internalCapability.threadId, card: publishedPage, bundle })) || store.appendMessage(internalCapability.threadId, { role: "bot", kind: "text", text, publishedPage, ...(source.group ? { from: { botId: internalSender.id, name: internalSender.name, color: internalSender.color } } : {}) }).id; } }) !== PASS) return;
       const delegatedThisTurn = (taskId: string) => {

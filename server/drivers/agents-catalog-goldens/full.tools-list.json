@@ -155,6 +155,23 @@
       }
     },
     {
+      "name": "send_telegram",
+      "description": "Send the person one Telegram message now, while they are away from the app. Send only what they need to act on or asked to hear: a finished result, a decision only they can make, a blocker, a failure. Never send start notices, \"still working\", \"no change\", restatements or your final reply to their Telegram message (that reply reaches them anyway). When they ask for updates on a schedule, create a when=schedule trigger whose instructions say to check real progress and call send_telegram only when something changed since the last message. Short plain text in their language. Identical messages within an hour and more than 12 an hour are refused.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The message, plain text."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
       "name": "coordinate_bots",
       "description": "The one way to hand work on: ask existing OpenMausBot teammates a question or assign them concrete work. In a room it defaults to this room; use group_id from list_room_targets for a specific room. Outside a room, everything you send a teammate from this conversation goes to one standing work thread with them and runs after anything still running there; thread \"new\" opens a fresh thread on them instead. Give 1-4 bot_ids — teammate ids as list_bots or your roster prints them; a unique teammate name also resolves: they see only what you send them and use their own model, tools and permissions. They can consult their own specialists; every result returns here and resumes you automatically, so after sending all assignments END your turn: do not poll or wait, and never call assignment_status in the same turn. consult true asks a question the teammate answers from what it knows, acting on nothing; reply \"none\" is a one-way notice nothing comes back from. Include exact file paths, constraints and what must be verified (done_when). On return, resolve tradeoffs, verify the requested outcome and request concrete corrections with rework true if necessary before giving one final answer. Never target whoever assigned you this work or anyone above it: to ask or report back, end your turn and your reply resumes them. Never thank or approve a finished teammate; its result already returned. Never repeat a refused call unchanged.",
       "inputSchema": {
@@ -1160,7 +1177,7 @@
     },
     {
       "name": "set_bot_process",
-      "description": "Chief only: replace a managed bot's process in Design bot. Read get_bot_process first. Up to 24 steps; acyclic edges branch in parallel and join after predecessors; contains filters predecessor output. Omit edges for sequential order. Preserves enabled; never starts a run. The person enables/runs it. For project workers use create_bot cwd or start_thread folder; memory_update saves their own durable memory across threads.",
+      "description": "Chief only: replace a managed bot's process in Design bot. Read get_bot_process first. Up to 24 steps; steps without inputs start together, branches run in parallel, a join waits (join any, all or a quorum number). An edge runs always, on contains text, on when (the source verdict: verdict == PASS, score >= 90, status == failed; and/or), on an AI condition, or otherwise. output verdict ends a step with JSON {verdict,score,notes,items} judged against criteria; loop {max} reruns the same or an earlier step with that output as feedback, join parallel consumers before looping. Exhaustion needs a matching conditional escalation, not unconditional delivery. forEach runs per listed item. model/effort per step: small to follow a plan, strong to plan or check. botId hands the step to a teammate, askBotId asks advice, approval asks the person over Telegram. Omit edges for sequential order. enabled and autoRun (run on delegated work and Tasks; autoRunWhen narrows it) keep their state when omitted. Saving never starts a run.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -1184,6 +1201,16 @@
               "steps"
             ],
             "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Enable or disable the saved process. Omit to preserve its current state. Does not start a run."
+              },
+              "autoRun": {
+                "type": "boolean"
+              },
+              "autoRunWhen": {
+                "type": "string"
+              },
               "identity": {
                 "type": "string"
               },
@@ -1212,6 +1239,75 @@
                     },
                     "instruction": {
                       "type": "string"
+                    },
+                    "askBotId": {
+                      "type": "string",
+                      "pattern": "^[\\w-]+$",
+                      "maxLength": 128,
+                      "description": "Exact reachable bot id to ask for advice, including the supervising Chief. Omit to execute with the process owner."
+                    },
+                    "botId": {
+                      "type": "string",
+                      "pattern": "^[\\w-]+$",
+                      "maxLength": 128,
+                      "description": "Exact bot id from list_team_setup."
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "effort": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                      ]
+                    },
+                    "output": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "verdict"
+                      ]
+                    },
+                    "criteria": {
+                      "type": "string"
+                    },
+                    "forEach": {
+                      "type": "boolean"
+                    },
+                    "concurrency": {
+                      "type": "integer",
+                      "maximum": 8
+                    },
+                    "join": {
+                      "type": "string",
+                      "pattern": "^(any|all|[1-9][0-9]?)$"
+                    },
+                    "approval": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "timeoutHours",
+                        "default"
+                      ],
+                      "properties": {
+                        "timeoutHours": {
+                          "type": "number",
+                          "minimum": 0.1,
+                          "maximum": 168
+                        },
+                        "default": {
+                          "type": "string",
+                          "enum": [
+                            "approve",
+                            "reject"
+                          ]
+                        }
+                      }
                     },
                     "x": {
                       "type": "number",
@@ -1246,6 +1342,31 @@
                     },
                     "contains": {
                       "type": "string"
+                    },
+                    "when": {
+                      "type": "string"
+                    },
+                    "condition": {
+                      "type": "string"
+                    },
+                    "otherwise": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "loop": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "max"
+                      ],
+                      "properties": {
+                        "max": {
+                          "type": "integer",
+                          "maximum": 10
+                        }
+                      }
                     }
                   }
                 }

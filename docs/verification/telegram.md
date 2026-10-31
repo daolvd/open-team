@@ -12,7 +12,10 @@ only its synthetic bot token. It configures direct bot routing with the workflow
 disabled, sends a command, chooses an inline option, replies to a text question,
 checks the persisted answers, receives the original file, and continues in the
 same bot thread. It also checks that queue/start notices are absent and typing
-appears during processing, pauses for phone input and stops after completion. The bounded
+appears during processing, pauses for phone input and stops after completion.
+A last command has the bot call `send_telegram` twice with the same progress
+line: the first arrives before the final reply, the second is refused as a
+repeat and never reaches Telegram. The bounded
 control-surface transcript, answers, delivery metadata and server log path are
 recorded in `.omb-scratch/telegram-evidence.json`.
 

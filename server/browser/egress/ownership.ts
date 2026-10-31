@@ -1,11 +1,14 @@
-// Which processes hold the loopback listeners on a Linux machine, so a server lets a bot's browser reach only the
-// dev servers a bot's own processes opened. Other platforms answer "not a bot's".
-//
 // Listener discovery and the socket-owner walk are adapted from pingdotgg/t3code@00cdceb1
 // apps/server/src/preview/PortScanner.ts (procLocalAddress, parseProcNetTcp, findSocketOwners), MIT License,
 // Copyright (c) 2026 T3 Tools Inc. (full text in third_party/t3-code/LICENSE); modified: plain Node in place of
 // Effect, and an owner is a bot's when its session is one an engine started, not when a terminal registered it.
 import { readdir, readFile, readlink } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const exec = promisify(execFile);
+const runCommand = async (file: string, args: string[]) =>
+  (await exec(file, args, { timeout: 2_000, maxBuffer: 2 * 1024 * 1024 })).stdout;
 
 /** `/proc/net/tcp` state for a listening socket. */
 const PROC_TCP_LISTEN = "0A";
@@ -75,19 +78,23 @@ export class ListenerOwnership {
   private readonly proc: ProcFiles;
   private readonly platform: NodeJS.Platform;
   private readonly now: () => number;
+  private readonly run: (file: string, args: string[]) => Promise<string>;
   private listeners: { at: number; byPort: Map<number, string[]> } | null = null;
   private owners = new Map<string, number>();
   private misses = new Map<string, number>();
 
-  constructor(options: { sessions: () => EngineSessions; proc?: ProcFiles; platform?: NodeJS.Platform; now?: () => number }) {
+  constructor(options: { sessions: () => EngineSessions; proc?: ProcFiles; platform?: NodeJS.Platform; now?: () => number; run?: (file: string, args: string[]) => Promise<string> }) {
     this.sessions = options.sessions;
     this.proc = options.proc ?? nodeProc;
     this.platform = options.platform ?? process.platform;
     this.now = options.now ?? Date.now;
+    this.run = options.run ?? runCommand;
   }
 
   /** Whether every listener on this loopback port belongs to a process in a bot engine's session. */
   async botOwned(port: number): Promise<boolean> {
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) return false;
+    if (this.platform === "darwin") return this.macBotOwned(port);
     if (this.platform !== "linux") return false;
     let inodes = (await this.snapshot(LISTENERS_TTL_MS)).get(port);
     if (!inodes?.length) inodes = (await this.snapshot(MISS_RETRY_MS)).get(port);
@@ -101,6 +108,32 @@ export class ListenerOwnership {
       if (session === null || !(await this.isBotSession(session, sessions))) return false;
     }
     return true;
+  }
+
+  private async macBotOwned(port: number): Promise<boolean> {
+    try {
+      const listeners = await this.run("/usr/sbin/lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"]);
+      const pids = listeners.trim().split("\n").filter((line) => !/^f\d+$/.test(line));
+      if (!pids.length || pids.some((line) => !/^p[1-9]\d*$/.test(line))) return false;
+      const table = await this.run("/bin/ps", ["-axo", "pid=,ppid="]);
+      const parents = new Map(table.trim().split("\n").map((line) => {
+        const [pid, parent] = line.trim().split(/\s+/).map(Number);
+        return [pid!, parent!] as const;
+      }));
+      const sessions = this.sessions();
+      return pids.every((line) => {
+        let pid = Number(line.slice(1));
+        const seen = new Set<number>();
+        while (pid > 1 && !seen.has(pid)) {
+          if (sessions.live.has(pid) && parents.has(pid)) return true;
+          seen.add(pid);
+          pid = parents.get(pid) ?? 0;
+        }
+        return false;
+      });
+    } catch {
+      return false;
+    }
   }
 
   /** An ended session counts only while its leader's pid is free: a live pid there is a reused one. */

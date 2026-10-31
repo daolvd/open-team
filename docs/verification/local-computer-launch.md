@@ -29,6 +29,17 @@ background-input guarantee.
 
 ## Responsive desktop startup
 
+On macOS, prepare the development driver with `pnpm build:cua`. When
+`CuaDriver.app` is absent, the desktop uses `dist-native/<arch>/cua-driver`
+and starts its own embedded host. macOS Accessibility and Screen Recording
+grants are still required for the Electron host. An explicit `CUA_DRIVER_PATH`
+keeps priority, and an installed `CuaDriver.app` keeps its existing behavior.
+
+`pnpm exec vitest run electron/cua-macos-dev.test.mjs` checks ARM64 and x64
+development discovery, owned startup and shutdown, override precedence,
+architecture matching, and missing permission reporting. It uses inert files
+in a disposable home with mocked Electron, SDK, subprocesses, and sockets.
+
 `pnpm exec vitest run electron/cua-launch.test.mjs` checks the desktop CUA
 startup boundary without native permissions or controlling a real app. Electron
 and the CUA SDK are mocked; every subprocess is redirected to an inert Node
@@ -138,3 +149,20 @@ AX click, pixel click, typing, scroll, covered windows, other Spaces, and actual
 user takeover. Keep permissions and the host control gate enabled. Repeat through
 the packaged embedded daemon, including signing and supported Mac architectures.
 Do not use the operator's OMB data or authenticated browser profiles as fixtures.
+
+
+## Computer-use selection
+
+Enable computer use is on by default (Auto / an omitted `computer` field).
+The Computer tab and Access settings share a control: Off saves `"off"`, On
+clears it to Auto. Busy turns keep their selection until they finish. The
+runtime mounts supported CLI MCP tools directly and claims the host lazily on
+the first screen call, without a separate first-use confirmation card. The
+control gate here means the exclusive host lease and person takeover, which
+remain enabled. OS permission prompts and unavailable-driver errors still apply.
+
+Run `pnpm exec vitest run server/host-lazy-claim.e2e.test.ts` for isolated host
+lease, contention, cancellation, takeover and confirmation-free calls. This
+uses a synthetic desktop descriptor and fake engine; it does not click a real
+user's desktop. See the Terra follow-up in process-levels-live-2026-10-31.md for
+actual browser interactions and desktop toggle evidence.

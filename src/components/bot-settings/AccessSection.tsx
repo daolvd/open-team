@@ -13,6 +13,7 @@ import { shortPath } from "@/lib/short-path";
 import { useDesktopCapabilities } from "../DesktopCapabilities";
 import { CloudBackendPicker } from "../CloudBackendPicker";
 import { Switch } from "../SettingsPrimitives";
+import { ComputerUseControl } from "./ComputerUseControl";
 import { PhoneAppsCard } from "./PhoneAppsCard";
 import { ProposalStatus } from "./ProposalStatus";
 import { ToolSelectionCard } from "./ToolSelectionCard";
@@ -673,6 +674,7 @@ export function AccessSection({
   return (
     <div className="flex flex-col gap-4">
       {shows("worksOn") && <div className="rounded-xl bg-card p-4" data-testid="access-works-on">
+        <div className="mb-4"><ComputerUseControl bot={bot} patch={patch} /></div>
         <div className="text-[15px] font-medium text-ink">{t("access.worksOn", { name: bot.name, short: worksOn.short })}</div>
         <ProposalStatus bot={bot} kind="owner" />
         <button

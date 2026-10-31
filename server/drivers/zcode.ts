@@ -56,7 +56,7 @@ export const ZcodeDriver: ProviderDriver<ZcodeConfig> = {
       capabilities: {
         sessionModelSwitch: "unsupported", agentsMcp: true, composioMcp: true, browserMcp: true,
         dataMcp: true, highlevelMcp: true, deviceMcp: true, customMcp: true,
-        localComputerMcp: false, strictResume: true, engineAdmission: true,
+        localComputerMcp: true, strictResume: true, engineAdmission: true,
       },
       async sendTurn(turn) {
         if (running.has(turn.threadId)) throw new Error("Zcode is already running this conversation.");

@@ -229,9 +229,6 @@ export function writeMemoryDoc(
   opts: { expectedHash?: string } = {},
 ): MemoryWriteResult {
   const ref = parseMemoryPath(path);
-  ensureWorkspace(botId);
-  if (ref.kind === "log") mkdirSync(join(workspaceDir(botId), "memory", "log"), { recursive: true, mode: 0o700 });
-  const absolute = resolveMemoryPath(botId, path);
   const after = redactSecretsInText(text);
   const bytes = Buffer.byteLength(after, "utf8");
   if (bytes > MEMORY_FILE_MAX_BYTES) {
@@ -250,6 +247,9 @@ export function writeMemoryDoc(
       { currentHash: current.hash, current: current.text },
     );
   }
+  ensureWorkspace(botId);
+  if (ref.kind === "log") mkdirSync(join(workspaceDir(botId), "memory", "log"), { recursive: true, mode: 0o700 });
+  const absolute = resolveMemoryPath(botId, path);
   writeFileAtomic(absolute, after, { mode: 0o600 });
   return { path, before: current.exists ? current.text : null, after, hash: hashMemoryText(after) };
 }

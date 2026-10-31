@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 import { shouldMountLocalComputer } from "./local-routing.ts";
 
 describe("local computer routing", () => {
-  it("never lets Linux Auto fall back to the user's desktop", () => {
+  it("mounts an available Linux desktop in Auto", () => {
     expect(
       shouldMountLocalComputer({
         requested: undefined,
         hostPlatform: "linux",
         providerSupportsLocal: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("requires an explicit local selection and an approval-capable provider on Linux", () => {
+  it("requires a capable provider for an explicit Linux desktop", () => {
     expect(
       shouldMountLocalComputer({
         requested: "local",

@@ -19,6 +19,31 @@ Select a connection and choose a **Routing rule**:
 A malformed AI decision fails the destination step instead of silently skipping
 it. A join waits for its predecessors and receives only matching results.
 
+## Route requests to the right step
+
+A step without incoming connections can describe the requests it takes in
+**Takes requests when**, such as “requests about drawing, illustration or UI
+design”. Before any step runs, the lead bot reads the request against every
+such rule in one separate conversation and chooses the steps whose rule
+applies, interpreting meaning rather than matching text. Only chosen steps
+and their descendants run; the others are skipped with the lead's reason.
+Steps without a rule always run. When no rule applies and nothing else runs,
+the lead bot handles the request itself instead of summarizing. **Latest run →
+Request routing** shows the choice, the reason and **Open routing check**.
+
+Routing applies to manual runs, workflow tasks and Telegram's **Run connected
+workflow steps** without a chosen input step. Telegram's selected input step is
+the person's own choice and is not re-routed. Connecting a step's Input removes
+its rule, because it no longer starts the workflow. A routing reply that is not
+the expected JSON, or that names a step without a rule, fails the run with that
+error rather than guessing. Each run with rules uses one additional AI turn.
+
+Workflow prompts mark the request, step instructions and teammates' results
+with XML-style tags (`<request>`, `<preceding_results>`, `<step_reports>`) and
+tell the bot to treat tagged reports as data and to reply without the tags.
+Telegram progress messages name steps by number and instruction, never by
+internal ids.
+
 Choose a **Lead bot**, write each step's instruction, and save. **Configure bot**
 opens that bot's existing identity, standing instructions, engine, project
 folders, skills and tool settings. These settings apply to workflow turns too.
@@ -85,9 +110,16 @@ from that user in that chat is accepted. Each message becomes a normal-priority
 task, including direct conversations. The isolated fixture engine returns scripted
 responses; select a configured real engine for AI conversation.
 
-Telegram receives the task receipt, starts, every completed step's text output,
-skipped steps, failures and final summary. App-created tasks and manual workflow
-runs also report there. Long messages are split into chunks. Conversations and
+Telegram receives only what the person needs: a direct bot's reply, a workflow's
+final summary, failed steps, and finished or failed tasks. Routing decisions,
+connection checks, completed or skipped steps and bot-created tasks stay in the
+app. App-created tasks and manual workflow runs also report there.
+
+While Telegram is listening, `send_telegram` is mounted for the direct bot and
+the teammates it manages, or for a Telegram workflow's lead and step bots. Their
+chats, routines and handoffs can send results, decisions and blockers while the
+person is away, for example from a schedule trigger asked for over Telegram. An
+identical message within an hour and more than 12 messages an hour are refused. Long messages are split into chunks. Conversations and
 task results remain available in the app if Telegram delivery fails. Supported
 files and phone forms are forwarded as described in [Telegram verification](telegram.md).
 Live tool streams are not forwarded. Replies from the bot are not task input.
@@ -101,10 +133,13 @@ responses. **Disconnect Telegram** removes this connection file.
 
 ## Isolated verification
 
-Run `pnpm exec vitest run shared/workflow.test.ts server/workflow-condition.test.ts server/routes/workflows.test.ts server/workflow-routing.e2e.test.ts`.
-The routing end-to-end test launches an isolated server with scripted CLI bots,
-checks the cat-game design handoff to bot 2, then verifies an unrelated request
-skips that bot with a saved explanation. It does not contact a real AI or Telegram.
+Run `pnpm exec vitest run shared/workflow.test.ts server/workflow-condition.test.ts server/prompt-tags.test.ts server/routes/workflows.test.ts server/workflow-routing.e2e.test.ts`.
+The routing end-to-end tests launch an isolated server with scripted CLI bots.
+The first checks the cat-game design handoff to bot 2, then verifies an
+unrelated request skips that bot with a saved explanation. The second gives two
+root steps request rules: “vẽ một ui game mèo trending” must start only the
+design step, and a meeting request no rule covers must be answered by the lead
+itself. They do not contact a real AI or Telegram.
 
 ```sh
 pnpm exec vitest run shared/workflow.test.ts server/routes/workflows.test.ts server/workflow-telegram.test.ts server/setup-import.test.ts
@@ -126,7 +161,7 @@ authorization, duplicate-run rejection, persistence, interrupted recovery,
 enable/disable, task priority, retry and cancellation. A synthetic Telegram
 transport verifies authorized routing, direct-bot conversation continuity,
 entry-step dispatch, long-message
-splitting and delivery of receipts, step outputs, failures and summaries.
+splitting, delivery of failures and summaries only, and send_telegram repeat and hourly limits.
 Delegation tests cover creator identity, peer permissions, turn limits,
 ancestry limits and capabilities expiring during request-body reads.
 Import tests discover synthetic Claude/Codex skills and CLI MCP configurations,

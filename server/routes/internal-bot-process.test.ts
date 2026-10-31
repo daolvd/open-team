@@ -57,7 +57,7 @@ async function serve() {
 it("saves a Chief's graph in the same state read by Design bot, persists it and keeps memory separate from the project directory", async () => {
   const app = await serve();
   await app.request("/api/bots/worker/design");
-  expect(await app.request(undefined, "PUT", { design: { ...design, enabled: true } })).toMatchObject({ status: 200, body: {
+  expect(await app.request(undefined, "PUT", { design })).toMatchObject({ status: 200, body: {
     design: { ...design, enabled: false }, projectFolder: app.dataDir,
     memory: { enabled: true, folder: join(app.dataDir, "workspaces", "worker"), index: join(app.dataDir, "workspaces", "worker", "MEMORY.md") },
   } });
@@ -65,7 +65,10 @@ it("saves a Chief's graph in the same state read by Design bot, persists it and 
   expect(JSON.parse(readFileSync(botDesignPath("worker", app.dataDir), "utf8")).design).toEqual(botDesignSchema.parse(design));
   expect(app.run).not.toHaveBeenCalled();
   await app.request("/api/bots/worker/design", "PUT", { ...design, enabled: true });
-  expect(await app.request(undefined, "PUT", { design: { ...design, enabled: false, identity: "Updated" } })).toMatchObject({ status: 200, body: { design: { enabled: true, identity: "Updated" } } });
+  expect(await app.request(undefined, "PUT", { design: { ...design, enabled: false, identity: "Updated" } })).toMatchObject({ status: 200, body: { design: { enabled: false, identity: "Updated" } } });
+  expect(await app.request(undefined, "PUT", { design: { ...design, enabled: true } })).toMatchObject({ status: 200, body: { design: { enabled: true } } });
+  expect(await app.request(undefined, "PUT", { design: { ...design, identity: "Still enabled" } })).toMatchObject({ status: 200, body: { design: { enabled: true } } });
+  expect(await app.request(undefined, "PUT", { design: { ...design, enabled: "true" } })).toMatchObject({ status: 400 });
   expect(app.run).not.toHaveBeenCalled();
 });
 

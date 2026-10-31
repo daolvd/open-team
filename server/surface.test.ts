@@ -61,7 +61,7 @@ describe("resolveSurface", () => {
   it("Off mounts no computer and no browser, and says which setting did it", () => {
     const plan = resolveSurface({ destination: "off", browserOn: true });
     expect(plan).toMatchObject({ computer: "off", browser: false, pinned: null });
-    expect(plan.note).toMatch(/"Works on" setting is Off/);
+    expect(plan.note).toMatch(/Enable computer use is turned off/);
     expect(plan.note).toMatch(/no computer and no built-in browser/);
     expect(resolveSurface({ destination: "off", browserOn: false })).toEqual(plan);
     expect(surfacePrompt({ computer: null, browser: false }, { note: plan.note })).toBe(plan.note);
@@ -133,18 +133,18 @@ describe("surfacePrompt", () => {
     expect(surfacePrompt({ computer: "local", browser: false })).toMatch(/tell them it is on this computer/);
   });
 
-  it("on the person's own computer, sends web work to the bot's own browser first and their screen last", () => {
+  it("allows enabled computer tools directly alongside the browser", () => {
     const beside = surfacePrompt({ computer: "local", browser: true });
     expect(beside).toMatch(/Web tasks → the built-in browser/);
     expect(beside).toContain("This computer is the person's own: their screen, their apps and the browsers they are signed in to.");
     expect(beside).toContain("use, in this order: your built-in browser, a cloud computer if select_computer offers one, a connected app.");
-    expect(beside).toContain("Use their own browser or screen only when the task needs their own signed-in session and nothing else works.");
-    expect(beside).toContain("OpenMausBot asks them once whether you may, at every approval level");
+    expect(beside).toContain("use the mounted computer tools directly");
+    expect(beside).not.toContain("asks them once");
     expect(beside).toContain("never mention DevTools, CDP, debugging ports, profiles, grants, binding, attaching, endpoints or drivers");
     const alone = surfacePrompt({ computer: "local", browser: false });
     expect(alone).not.toMatch(/web pages included/);
     expect(alone).toContain("use, in this order: web search and fetching pages, a cloud computer if select_computer offers one, a connected app.");
-    expect(alone).toContain("Use their own browser or screen only when the task needs their own signed-in session");
+    expect(alone).toContain("without asking for an additional computer-use confirmation");
     // Other computers are the bot's own: their wording is unchanged.
     expect(surfacePrompt({ computer: "vm", browser: false })).not.toContain("the person's own");
     expect(surfacePrompt({ computer: "cloud", browser: true })).not.toContain("the person's own");
@@ -153,7 +153,9 @@ describe("surfacePrompt", () => {
   it("names only the browser tab when it is the only surface", () => {
     const text = surfacePrompt({ computer: null, browser: true });
     expect(text).toMatch(/happens in the built-in browser tab/);
-    expect(text).toMatch(/no desktop, file or shell computer/);
+    expect(text).toContain("no desktop screen-control tools");
+    expect(text).toContain("does not disable the provider-native coding tools");
+    expect(text).toContain("Attempt the available file/shell tools before reporting a coding capability blocker");
     expect(text).toMatch(/Browser tab of the Screen panel/);
     expect(text).toMatch(/say in one short sentence where you are working/);
     expect(text).not.toMatch(/happens on the cloud computer/);

@@ -14,7 +14,6 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 import { hostTimeout } from "./testing/host-timeout.ts";
 import { ownTurnText } from "./testing/room-handoff-agent.ts";
-import { withAnswer } from "./testing/your-computer.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const RERUN_NOTE = "OpenMausBot restarted while your previous turn here was running";
@@ -464,12 +463,12 @@ itHost("T7 queues a root on the computer seat at the wait ceiling and continues 
     await apiOk("POST", `/api/bots/${holder.id}/messages`, { text: "Hold the screen slowly.", threadId: held.threadId });
     await until(() => taskOf(holder.id, held.threadId), (task) => task?.busy === true);
     // On Auto the person is asked once before each turn first uses their computer.
-    expect(await withAnswer(base, held.threadId, gate(await dumpFor(holder.id)))).toEqual({ held: false, helpOpen: false });
+    expect(await gate(await dumpFor(holder.id))).toEqual({ held: false, helpOpen: false });
     const { bot: waiter } = await apiOk("POST", "/api/bots", { name: "Seat Waiter" });
     const { task: wait } = await apiOk("POST", `/api/bots/${waiter.id}/tasks`, {});
     await apiOk("POST", `/api/bots/${waiter.id}/messages`, { text: "T7-JOB: use the screen too.", threadId: wait.threadId });
     await until(() => taskOf(waiter.id, wait.threadId), (task) => task?.busy === true);
-    const contested = await withAnswer(base, wait.threadId, gate(await dumpFor(waiter.id)));
+    const contested = await gate(await dumpFor(waiter.id));
     expect(contested.held).toBe(true);
     const root = (await until(() => roots().find((row) => row.assignee?.destination?.threadId === wait.threadId), (row) => row?.status === "queued"))!;
     expect(root).toMatchObject({ status: "queued", executions: 1, continuation: { note: expect.stringContaining(SEAT_FREE), count: 1 } });
@@ -483,7 +482,7 @@ itHost("T7 queues a root on the computer seat at the wait ceiling and continues 
     const { task: wait2 } = await apiOk("POST", `/api/bots/${second.id}/tasks`, {});
     await apiOk("POST", `/api/bots/${second.id}/messages`, { text: "T7-JOB-2: use the screen as well.", threadId: wait2.threadId });
     await until(() => taskOf(second.id, wait2.threadId), (task) => task?.busy === true);
-    expect((await withAnswer(base, wait2.threadId, gate(await dumpFor(second.id)))).held).toBe(true);
+    expect((await gate(await dumpFor(second.id))).held).toBe(true);
     const root2 = (await until(() => roots().find((row) => row.assignee?.destination?.threadId === wait2.threadId), (row) => row?.status === "queued"))!;
     expect(root2).toMatchObject({ status: "queued", executions: 1, continuation: { note: expect.stringContaining(SEAT_FREE), count: 1 } });
     expect(root2.createdAt).toBeGreaterThan(root.createdAt);

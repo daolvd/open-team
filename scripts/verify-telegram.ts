@@ -117,10 +117,26 @@ try {
   push({ message: { message_id: 3, chat: { id: 123 }, from: { id: 456 }, text: "Continue that project." } });
   const second = (await eventually(() => api("GET", "/api/workflows/tasks"), result => result.tasks.length === 2 && result.tasks[0]?.status === "completed", "continuation task")).tasks[0];
   assert.equal(second.threadId, first.threadId);
-  const evidence = { ok: true, url: fixture.info.url, logPath: fixture.info.logPath, first, second, messages, answers, deliveries: sent.map(row => ({ method: row.method, text: row.body.text, file: row.body.document?.name })) };
+  const progress = "Build 12 passed; waiting for your art approval.";
+  writeFileSync(toolsFile, JSON.stringify([
+    { server: "agents", name: "send_telegram", input: { text: progress } },
+    { server: "agents", name: "send_telegram", input: { text: progress } },
+  ]));
+  writeFileSync(replyFile, "Progress sent.");
+  const beforeProgress = sent.length;
+  push({ message: { message_id: 4, chat: { id: 123 }, from: { id: 456 }, text: "Send me progress when something changes." } });
+  const third = (await eventually(() => api("GET", "/api/workflows/tasks"), result => result.tasks.length === 3 && result.tasks[0]?.status === "completed", "progress task")).tasks[0];
+  await eventually(() => sent.slice(beforeProgress).some(row => row.body.text === "Progress sent."), Boolean, "final reply after progress");
+  assert.deepEqual(sent.slice(beforeProgress).filter(row => row.method === "sendMessage").map(row => row.body.text), [progress, "Progress sent."]);
+  const progressRows = (await api("GET", `/api/threads/${third.threadId}/messages?limit=60`)).messages
+    .filter((row: any) => row.tool?.name?.endsWith("send_telegram")).map((row: any) => ({ ok: row.tool.ok, output: row.tool.output }));
+  assert.equal(progressRows.length, 2, JSON.stringify(progressRows));
+  assert.match(String(progressRows[0].output), /Sent to Telegram/);
+  assert.match(String(progressRows[1].output), /same message already went to Telegram/);
+  const evidence = { ok: true, url: fixture.info.url, logPath: fixture.info.logPath, first, second, third, progressRows, messages, answers, deliveries: sent.map(row => ({ method: row.method, text: row.body.text, file: row.body.document?.name })) };
   mkdirSync(".omb-scratch", { recursive: true });
   writeFileSync(".omb-scratch/telegram-evidence.json", JSON.stringify(evidence, null, 2));
-  console.log(JSON.stringify({ ok: true, logPath: fixture.info.logPath, evidence: ".omb-scratch/telegram-evidence.json", verified: "typing while working, paused during phone input, stopped after completion, native choice and text forms, engine answers, file delivery, quiet queue, direct routing with workflow disabled, same-thread continuation" }));
+  console.log(JSON.stringify({ ok: true, logPath: fixture.info.logPath, evidence: ".omb-scratch/telegram-evidence.json", verified: "typing while working, paused during phone input, stopped after completion, native choice and text forms, engine answers, file delivery, quiet queue, direct routing with workflow disabled, same-thread continuation, send_telegram progress with repeat refused" }));
 } finally {
   await waitForExit(child, { signal: "SIGTERM" });
   await fixture.close();

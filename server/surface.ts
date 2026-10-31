@@ -40,7 +40,7 @@ const NO_BROWSER_NOTE =
   " This bot is set to work in the built-in browser, but the built-in browser is switched off in App Settings, so you have no browser and no computer this turn — say so instead of guessing.";
 
 const OFF_NOTE =
-  " This bot's \"Works on\" setting is Off, so no computer and no built-in browser are mounted this turn: you cannot open a page, click, or type on any screen. If the user asks for something that needs one, tell them Works on is Off in this bot's settings — never claim you are opening a browser you do not have.";
+  " Enable computer use is turned off for this bot, so no computer and no built-in browser are mounted this turn: you cannot open a page, click, or type on any screen. If the user asks for something that needs one, tell them Enable computer use is off in this bot's settings — never claim you are opening a browser you do not have.";
 
 export function computerSkippedNote(cause: string): string {
   const why = cause.trim().replace(/[\s.]+$/, "");
@@ -125,10 +125,9 @@ export function surfaceLabel(surface: Surface): string {
   }
 }
 
-/** This computer is the person's own: web work goes elsewhere first, and their first-use question is the harness's to ask. */
 const WEB_WORK_ORDER = "For web work such as finding, booking or looking something up, use, in this order:";
 const YOUR_COMPUTER_LAST =
-  " Use their own browser or screen only when the task needs their own signed-in session and nothing else works. Before your first action on it in a request, OpenMausBot asks them once whether you may, at every approval level: do not ask in chat yourself, and if they say no, finish another way. " + PLAIN_WORDS;
+  " Computer use is enabled for this bot: use the mounted computer tools directly when the task needs them, without asking for an additional computer-use confirmation. The person can turn it off with Enable computer use in this bot's settings. " + PLAIN_WORDS;
 const YOUR_COMPUTER_BESIDE_BROWSER =
   ` This computer is the person's own: their screen, their apps and the browsers they are signed in to. ${WEB_WORK_ORDER} your built-in browser, a cloud computer if select_computer offers one, a connected app.${YOUR_COMPUTER_LAST}`;
 const YOUR_COMPUTER_ALONE =
@@ -174,7 +173,7 @@ export function surfacePrompt(
       ` Everything you do on screen happens on ${computer}, web pages included, through its own browser; there is no separate built-in browser this turn. If you need the user to sign in, tell them it is on ${computer}.`;
   } else if (mounted.browser) {
     text =
-      " Everything you do on screen happens in the built-in browser tab; there is no desktop, file or shell computer this turn. If you need the user to sign in, tell them it is in the Browser tab of the Screen panel.";
+      " Everything you do on screen happens in the built-in browser tab; there are no desktop screen-control tools this turn. This screen selection does not disable the provider-native coding tools: use available file editing and shell execution tools for implementing code, reading project files, running tests and starting a development server. Attempt the available file/shell tools before reporting a coding capability blocker; report the actual error if they fail. Use the mounted browser tools to inspect and interact with the running app. If you need the user to sign in, tell them it is in the Browser tab of the Screen panel.";
   }
   if (text) text += RESTATE_SENTENCE + (opts.canSelect
     ? SURFACE_AUTHORITY.replace(ASK_TO_SWITCH, "inspect connected choices with select_computer and select the requested available place; on a pending result end this turn so OpenMausBot can reconnect the correct tools and continue the original request")

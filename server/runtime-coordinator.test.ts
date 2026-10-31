@@ -1310,3 +1310,46 @@ describe("RuntimeCoordinator: outward restart policy, answerNode, continuation o
     expect(w.host.runs[0]!.composed.turn).toBe("continued");
   });
 });
+
+describe("process runs and engine outages", () => {
+  const settled = async (w: World, id: string) => {
+    for (let i = 0; i < 50 && !["completed", "failed"].includes(w.coordinator.node(id)?.status ?? ""); i++) await sleep(5);
+    return w.coordinator.node(id);
+  };
+
+  it("hands delegated work to the assignee's process and returns its output as the result", async () => {
+    const w = world();
+    const asked: string[] = [];
+    w.host.process = async (node) => {
+      asked.push(`${node.botId}:${node.text}`);
+      return node.botId === "builder" ? { ok: true, text: "Process: plan, build, review PASS" } : undefined;
+    };
+    const { node } = send(w, chief, "gen-1", undefined, builder, "Build it");
+    const { node: plain } = send(w, chief, "gen-1", undefined, tester, "Test it");
+    w.coordinator.tick();
+    expect(await settled(w, node.id)).toMatchObject({ status: "completed", result: "Process: plan, build, review PASS" });
+    expect(await settled(w, plain.id)).toMatchObject({ status: "completed", result: "tester done" });
+    expect(asked.sort()).toEqual(["builder:Build it", "tester:Test it"]);
+    expect(w.host.runs.map((run) => run.node.botId)).toEqual(["tester"]);
+  });
+
+  it("waits out a passing engine failure and continues the same turn", async () => {
+    const host = fakeHost();
+    let failures = 2;
+    host.script = (node) => node.botId === "builder" && failures-- > 0
+      ? { ok: false, text: "unexpected status 502 Bad Gateway: Launcher browser descriptor helper executable does not exist" } : undefined;
+    const w: World = { host, logs: [], coordinator: new RuntimeCoordinator({ dataDir: ":memory:", host, outageRetryDelaysMs: [0, 0, 0] }) };
+    const { node } = send(w, chief, "gen-1", undefined, builder, "Build it");
+    w.coordinator.tick();
+    expect(await settled(w, node.id)).toMatchObject({ status: "completed", result: "builder done" });
+    expect(host.runs).toHaveLength(3);
+    expect(host.runs[1]).toMatchObject({ resumed: true, composed: { turn: "continued" } });
+    expect(host.runs[1]!.text).toContain("previous attempt stopped on an engine error");
+    const auth = fakeHost(() => ({ ok: false, text: "401 Unauthorized: sign in again" }));
+    const refused: World = { host: auth, logs: [], coordinator: new RuntimeCoordinator({ dataDir: ":memory:", host: auth, outageRetryDelaysMs: [0, 0] }) };
+    const { node: failed } = send(refused, chief, "gen-2", undefined, builder, "Build it");
+    refused.coordinator.tick();
+    expect(await settled(refused, failed.id)).toMatchObject({ status: "failed" });
+    expect(auth.runs).toHaveLength(1);
+  });
+});

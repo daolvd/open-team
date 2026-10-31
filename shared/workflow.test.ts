@@ -48,6 +48,24 @@ describe("workflow execution", () => {
     expect(missing.c).toMatchObject({ status: "failed" });
   });
 
+  it("skips unchosen steps with their reason and runs a join from the chosen branch", async () => {
+    const called: string[] = [];
+    const results = await executeWorkflow(workflow, async (node, inputs) => {
+      called.push(node.id);
+      return node.id === "c" ? inputs.map(input => input.nodeId).join("+") : node.id;
+    }, undefined, new Map([["b", "Not chosen"]]));
+    expect(called).toEqual(["a", "c"]);
+    expect(results.b).toEqual({ status: "skipped", reason: "Not chosen" });
+    expect(results.c).toEqual({ status: "completed", result: "a" });
+  });
+
+  it("accepts request rules only on steps without incoming connections", () => {
+    const rule = (id: string, when: string) => ({ ...workflow, nodes: workflow.nodes.map(n => n.id === id ? { ...n, when } : n) });
+    expect(() => validateWorkflow(rule("a", "Design requests"))).not.toThrow();
+    expect(() => validateWorkflow(rule("c", "Design requests"))).toThrow(/without incoming connections/);
+    expect(() => validateWorkflow(rule("a", "  "))).toThrow(/must not be empty/);
+  });
+
   it("rejects mixed and empty AI conditions", () => {
     for (const edge of [
       { from: "a", to: "c", condition: " " },

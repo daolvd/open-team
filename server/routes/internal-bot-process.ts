@@ -33,7 +33,7 @@ export function createInternalBotProcessRoutes(deps: {
     let { design } = deps.designs.read(target.id);
     if (body) {
       if (!body.success) return json(res, 400, { error: "Provide a process design object" });
-      const parsed = botDesignSchema.safeParse({ ...body.data.design, enabled: design.enabled });
+      const parsed = botDesignSchema.safeParse({ enabled: design.enabled, autoRun: design.autoRun, autoRunWhen: design.autoRunWhen, ...body.data.design });
       if (!parsed.success) return json(res, 400, { error: parsed.error.message });
       try { design = deps.designs.save(target.id, parsed.data).design; }
       catch (error) {
@@ -45,7 +45,7 @@ export function createInternalBotProcessRoutes(deps: {
     return json(res, 200, {
       botId: target.id, name: target.name, design, projectFolder: target.cwd || null,
       memory: { enabled: target.memoryEnabled !== false, folder, index: join(folder, "MEMORY.md") },
-      detail: `${method === "PUT" ? "Saved. " : ""}Inspect the graph in Design bot. The enabled switch is unchanged; the person enables and runs the process. Each bot keeps its own durable memory across threads and working directories with memory_update, memory_log and session_search. Use create_bot with cwd for a new project worker, or start_thread with folder for an existing worker.`,
+      detail: `${method === "PUT" ? "Saved. " : ""}Inspect the graph in Design bot. Set design.enabled to enable or disable the process; saving never starts a run. Each bot keeps its own durable memory across threads and working directories with memory_update, memory_log and session_search. Use create_bot with cwd for a new project worker, or start_thread with folder for an existing worker.`,
     });
   };
 }

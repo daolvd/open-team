@@ -27,6 +27,9 @@ type Connection = z.infer<typeof settings> & {
   username: string;
   offset: number;
 };
+const FORM_TIMEOUT_MS = 30 * 60_000;
+const BOT_MESSAGE_WINDOW_MS = 60 * 60_000;
+const BOT_MESSAGES_PER_WINDOW = 12;
 type Update = {
   update_id: number;
   message?: {
@@ -217,6 +220,21 @@ export function createWorkflowTelegram(deps: {
     });
     return deliveries;
   }
+  const botMessages: { text: string; at: number }[] = [];
+  async function botMessage(text: string): Promise<"sent" | "repeated" | "limited" | "offline"> {
+    const config = connection;
+    if (!config || !active || state !== "listening") return "offline";
+    const now = Date.now();
+    const same = text.replace(/\s+/g, " ").trim();
+    while (botMessages.length && now - botMessages[0]!.at > BOT_MESSAGE_WINDOW_MS) botMessages.shift();
+    if (botMessages.some(entry => entry.text === same)) return "repeated";
+    if (botMessages.length >= BOT_MESSAGES_PER_WINDOW) return "limited";
+    botMessages.push({ text: same, at: now });
+    const sending = deliveries.then(() => send(config, text));
+    deliveries = sending.catch(() => {});
+    await sending;
+    return "sent";
+  }
   function sendFile(file: TelegramFile): Promise<void> {
     const config = connection;
     if (!config) return Promise.resolve();
@@ -276,14 +294,14 @@ export function createWorkflowTelegram(deps: {
       form.settle(formatQuestionAnswers(form.questions, form.answers));
     } else await showQuestion(id);
   }
-  async function ask(title: string, questions: AskQuestion[], signal?: AbortSignal): Promise<string> {
+  async function ask(title: string, questions: AskQuestion[], signal?: AbortSignal, timeoutMs = FORM_TIMEOUT_MS): Promise<string> {
     const config = connection;
     if (!config || !active || !deps.enabled(config.targetBotId)) throw new Error("Open the app to answer this question; Telegram is disconnected or paused.");
     if (!questions.length || questions.length > 6) throw new Error("A form must have one to six questions.");
     const id = randomUUID().slice(0, 8);
     return new Promise<string>((resolve, reject) => {
       const onAbort = () => settle();
-      const timeout = setTimeout(() => settle(), 30 * 60 * 1000);
+      const timeout = setTimeout(() => settle(), timeoutMs);
       timeout.unref?.();
       function settle(answer?: string) {
         if (!forms.delete(id)) return;
@@ -447,6 +465,7 @@ export function createWorkflowTelegram(deps: {
   return {
     status,
     notify,
+    botMessage,
     file: sendFile,
     ask,
     working,

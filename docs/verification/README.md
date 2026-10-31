@@ -81,6 +81,7 @@ Use only mapped, tested commands:
 - [Engines and Doctor](engines.md)
 - [Cline engine and native loopback qualification](cline.md)
 - [Zcode CLI and native loopback qualification](zcode.md)
+- [MCP providers, restart, folder moves and privacy](mcp-provider-continuity.md)
 - [Claude coordination and turn-scoped tools](claude-tool-lifecycle.md)
 - [Codex bot instructions](codex-instructions.md)
 - [Codex browser routing and native search](codex-browser-routing.md)

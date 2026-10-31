@@ -1,0 +1,118 @@
+{
+  "enabled": false,
+  "autoRun": false,
+  "autoRunWhen": "",
+  "identity": "Application development with independent code and test review",
+  "method": "Editable application-development recipe. Map each step to an authorized project bot, available model and effort. Executor bots supply their existing tool and computer settings. Add owner approval only for decisions requiring it. Keep publish/deploy separate from local implementation.",
+  "steps": [
+    {
+      "id": "plan",
+      "title": "Spec: plan",
+      "instruction": "Freeze the input revision and acceptance. Write an exact plan with dependencies, allowed write paths, evidence and reviewer roles. Address feedback. Do not edit production files yet.",
+      "effort": "high"
+    },
+    {
+      "id": "score",
+      "title": "Spec: independent plan score",
+      "instruction": "Independently check the plan against the request. Return FAIL if any acceptance, input, ownership or required approval is missing. PASS requires score >=90 and no veto; include vetoes in notes.",
+      "output": "verdict",
+      "criteria": "PASS only with score >=90 and no veto.",
+      "effort": "high"
+    },
+    {
+      "id": "build",
+      "title": "Build and self-check",
+      "instruction": "Implement only the approved plan within its write scope, apply feedback, run focused checks and freeze an output revision/hash. Include evidence and remaining risks.",
+      "effort": "low"
+    },
+    {
+      "id": "code",
+      "title": "Code review",
+      "instruction": "Independently review the frozen application revision for correctness, compatibility and security. Return a verdict with evidence and the revision. Do not edit source.",
+      "output": "verdict"
+    },
+    {
+      "id": "test",
+      "title": "Application test review",
+      "instruction": "Verify the frozen application revision against acceptance: build/start, primary flow, error/back/cancel paths and responsive UI where applicable. Use an isolated fixture. Return verdict, commands, evidence, revision and untested limits. Do not edit source.",
+      "output": "verdict"
+    },
+    {
+      "id": "merge",
+      "title": "Review: aggregate",
+      "instruction": "Aggregate every required review of the same revision. A critical veto or missing acceptance evidence is FAIL regardless of vote count. Record non-blocking minor findings as follow-ups with owners. Return structured verdict and actionable feedback.",
+      "output": "verdict",
+      "join": "all",
+      "criteria": "PASS only when all required acceptance is met, with no critical veto or mixed revisions.",
+      "effort": "high"
+    },
+    {
+      "id": "deliver",
+      "title": "Deliver verified local application",
+      "instruction": "Report the application revision, run instructions, actual test evidence and follow-ups. Do not publish or deploy as part of this step. Mark DONE only when acceptance is met."
+    },
+    {
+      "id": "escalate",
+      "title": "Escalate or wait",
+      "instruction": "Report the failed or rejected condition, evidence, exhausted attempts and exact next owner/action. Keep the scope WAITING or BLOCKED as appropriate; do not claim delivery or approval."
+    }
+  ],
+  "edges": [
+    {
+      "from": "plan",
+      "to": "score"
+    },
+    {
+      "from": "score",
+      "to": "plan",
+      "when": "verdict == FAIL or score < 90",
+      "loop": {
+        "max": 2
+      }
+    },
+    {
+      "from": "score",
+      "to": "build",
+      "when": "verdict == PASS and score >= 90"
+    },
+    {
+      "from": "score",
+      "to": "escalate",
+      "otherwise": true
+    },
+    {
+      "from": "build",
+      "to": "code"
+    },
+    {
+      "from": "code",
+      "to": "merge"
+    },
+    {
+      "from": "merge",
+      "to": "build",
+      "when": "verdict == FAIL",
+      "loop": {
+        "max": 2
+      }
+    },
+    {
+      "from": "merge",
+      "to": "escalate",
+      "when": "verdict == FAIL or status == failed"
+    },
+    {
+      "from": "build",
+      "to": "test"
+    },
+    {
+      "from": "test",
+      "to": "merge"
+    },
+    {
+      "from": "merge",
+      "to": "deliver",
+      "when": "verdict == PASS"
+    }
+  ]
+}

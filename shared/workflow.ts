@@ -1,4 +1,5 @@
-export type WorkflowNode = { id: string; botId: string; instruction: string };
+/** `when` is the person's description of the requests a step takes; only a step without incoming connections has one. */
+export type WorkflowNode = { id: string; botId: string; instruction: string; when?: string };
 /** A connection is unconditional, an exact output substring, or an AI-evaluated instruction. */
 export type WorkflowEdge = { from: string; to: string; contains?: string; condition?: string };
 export type Workflow = {
@@ -32,6 +33,11 @@ export function validateWorkflow(workflow: Workflow): void {
     outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to]);
     indegree.set(edge.to, indegree.get(edge.to)! + 1);
   }
+  for (const node of workflow.nodes) {
+    if (node.when === undefined) continue;
+    if (!node.when.trim()) throw new Error("Request rule must not be empty");
+    if (indegree.get(node.id)) throw new Error("Only a step without incoming connections can take requests by rule");
+  }
   const ready = workflow.nodes
     .filter((node) => indegree.get(node.id) === 0)
     .map((node) => node.id);
@@ -52,6 +58,7 @@ export async function executeWorkflow(
     inputs: { nodeId: string; result: string }[],
   ) => Promise<string>,
   evaluate?: (edge: WorkflowEdge, output: string) => Promise<boolean>,
+  unselected: ReadonlyMap<string, string> = new Map(),
 ): Promise<Record<string, WorkflowResult>> {
   validateWorkflow(workflow);
   const tasks = new Map<string, Promise<WorkflowResult>>();
@@ -59,6 +66,12 @@ export async function executeWorkflow(
   function execute(node: WorkflowNode): Promise<WorkflowResult> {
     const existing = tasks.get(node.id);
     if (existing) return existing;
+    const reason = unselected.get(node.id);
+    if (reason !== undefined) {
+      const skipped = Promise.resolve<WorkflowResult>({ status: "skipped", reason });
+      tasks.set(node.id, skipped);
+      return skipped;
+    }
     const predecessors = workflow.edges.filter((edge) => edge.to === node.id);
     const task = Promise.all(
       predecessors.map((edge) => execute(nodes.get(edge.from)!)),
@@ -125,6 +138,14 @@ export type WorkflowRun = {
     reason?: string;
     error?: string;
   }[];
+  /** The lead's choice of steps by their `when` rules; an empty `selected` means the lead handled the request itself. */
+  selection?: {
+    status: "running" | "completed" | "failed";
+    threadId?: string;
+    selected?: string[];
+    reason?: string;
+    error?: string;
+  };
   summary?: string;
   summaryThreadId?: string;
   error?: string;
@@ -169,6 +190,12 @@ export type WorkflowTask = {
   parentTaskId?: string;
   delegationDepth?: number;
   conversationKey?: string;
+  /** A failed/interrupted task awaiting its authorized Chief's reconciliation. */
+  recoveryPending?: boolean;
+  /** Persisted linkage prevents duplicate reconciliation after restart. */
+  recoveryTaskId?: string;
+  /** The original task to inspect, without replaying its side effects. */
+  recoveryForTaskId?: string;
   status: "queued" | "running" | "completed" | "failed" | "interrupted";
   createdAt: number;
   startedAt?: number;

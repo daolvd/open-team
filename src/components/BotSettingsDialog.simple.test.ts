@@ -404,14 +404,14 @@ describe("the bot panel in Simple mode", () => {
     expect(shown(panel(makeBot(), "access"))).toEqual({ tab: "computer", page: undefined });
   });
 
-  it("shows no switch on any tab or on Bot settings: memory, upkeep, browser, record steps and Work until done live elsewhere", () => {
+  it("keeps computer use on the Computer tab and other switches off the panel home", () => {
     const bot = makeBot();
     expect(switches(panel(bot).html)).toBe(0);
     expect(panel(bot).html).not.toContain('aria-label="Work until done"');
     for (const tab of ["library", "computer"]) {
       click(find(panel(bot), "data-panel-tab", tab));
       const rendered = panel(bot);
-      expect(switches(rendered.html), tab).toBe(0);
+      expect(switches(rendered.html), tab).toBe(tab === "computer" ? 1 : 0);
       for (const text of ["Memory", "Upkeep", "Record"]) expect(rendered.html).not.toContain(`>${text}<`);
     }
     click(find(panel(bot), "data-panel-gear"));
@@ -830,7 +830,8 @@ describe("the Computer tab", () => {
     expect(rendered.html).toContain("Where Scout works");
     expect(rowValue(rendered, "where")).toBe("Let it choose");
     expect(has(rendered, "attr", "data-place-choice")).toBe(false);
-    expect(switches(rendered.html)).toBe(0);
+    expect(switches(rendered.html)).toBe(1);
+    expect(rendered.html).toContain('aria-label="Enable computer use"');
     click(find(rendered, "data-panel-page", "where"));
     expect(onOpen).toHaveBeenLastCalledWith("where");
     expect(computer(makeBot({ busy: true })).html).toContain("Working on a task.");

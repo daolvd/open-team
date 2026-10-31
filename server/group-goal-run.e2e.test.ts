@@ -58,6 +58,12 @@ beforeAll(async () => {
   queueFinishGate = join(home, "queue-finish");
   stopScopedLeadFinishGate = join(home, "stop-scoped-lead-finish");
   writeFileSync(stopScopedLeadFinishGate, "allow initial goal delegation");
+  const recoveryReplies = join(home, "recovery-replies.json");
+  writeFileSync(recoveryReplies, JSON.stringify({
+    "Browser artifact checked.": 'Evidence verified. <openmaus-goal>{"status":"completed","detail":"Replacement reviewer returned evidence."}</openmaus-goal>',
+    "What Broken reviewer did": 'Reassigning failed review. <openmaus-goal>{"status":"continue","next":"Browser reviewer","instruction":"Verify with available browser tools"}</openmaus-goal>',
+    "Verify the artifact and recover failed review work": 'Delegating review. <openmaus-goal>{"status":"continue","next":"Broken reviewer","instruction":"Verify the artifact"}</openmaus-goal>',
+  }));
   const data = join(home, ".openmausbot");
   const staticDir = join(home, "static");
   mkdirSync(data, { recursive: true });
@@ -66,6 +72,21 @@ beforeAll(async () => {
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: {
+      recoveryLead: {
+        driver: "claudeAgent",
+        displayName: "Department recovery lead",
+        environment: {
+          FAKE_CLAUDE_MODE: "happy",
+          FAKE_CLAUDE_MARKER_REPLIES: recoveryReplies,
+        },
+        config: { cli: FAKE_CLAUDE },
+      },
+      recoveryWorker: {
+        driver: "claudeAgent",
+        displayName: "Replacement reviewer fixture",
+        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_REPLIES: JSON.stringify(["Browser artifact checked."]) },
+        config: { cli: FAKE_CLAUDE },
+      },
       complete: {
         driver: "claudeAgent",
         displayName: "Completing fixture",
@@ -231,6 +252,61 @@ afterAll(async () => {
 });
 
 describe("goal-driven channel runs", () => {
+  it("gives workflow failure recovery to its department queue without a second host incident", async () => {
+    const bots: { id: string }[] = [];
+    try {
+      for (const [name, instanceId, chiefOfStaff] of [["Queue chief", "recoveryLead", true], ["Queue failed reviewer", "crash", false], ["Queue independent worker", "recoveryWorker", false]] as const) {
+        const created = await api("POST", "/api/bots", {
+          name, section: "Queue recovery department", settings: { chiefOfStaff },
+          modelSelection: { instanceId, model: "claude-sonnet-5" }, requireAvailableModel: true,
+        });
+        expect(created.status).toBe(201);
+        bots.push(created.body.bot);
+      }
+      const failed = await api("POST", "/api/workflows/tasks", { title: "Review unavailable", input: "Check the artifact", targetBotId: bots[1].id });
+      const independent = await api("POST", "/api/workflows/tasks", { title: "Independent evidence", input: "Check independent evidence", targetBotId: bots[2].id });
+      expect(failed.status).toBe(201);
+      expect(independent.status).toBe(201);
+      await expect.poll(async () => {
+        const { tasks } = (await api("GET", "/api/workflows/tasks")).body;
+        return {
+          independent: tasks.find((task: { id: string }) => task.id === independent.body.task.id)?.status,
+          recoveries: tasks.filter((task: { recoveryForTaskId?: string }) => task.recoveryForTaskId === failed.body.task.id).map((task: { status: string }) => task.status),
+        };
+      }, { timeout: hostTimeout(15_000) }).toEqual({ independent: "completed", recoveries: ["completed"] });
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const state = (await api("GET", "/api/bots?messages=100")).body;
+      const chief = state.bots.find((bot: { id: string }) => bot.id === bots[0].id);
+      expect(chief.tasks.some((task: { title: string }) => task.title === "Team incidents")).toBe(false);
+    } finally {
+      for (const bot of bots) await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+  it("continues a three-bot department goal after the first reviewer's provider fails", async () => {
+    const bots: { id: string }[] = [];
+    for (const [name, instanceId] of [["Recovery lead", "recoveryLead"], ["Broken reviewer", "crash"], ["Browser reviewer", "recoveryWorker"]]) {
+      const response = await api("POST", "/api/bots", { name, modelSelection: { instanceId, model: "claude-sonnet-5" }, requireAvailableModel: true });
+      expect(response.status).toBe(201);
+      bots.push(response.body.bot);
+    }
+    const room = (await api("POST", "/api/groups", {
+      name: "Department recovery", memberIds: bots.map(bot => bot.id),
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bots[0].id } },
+    })).body.group;
+    try {
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Verify the artifact and recover failed review work", mode: "goal" })).status).toBe(202);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=50")).body;
+        return state.groups.find((group: { id: string }) => group.id === room.id)?.messages.find((message: { kind: string }) => message.kind === "goal.run")?.goalRun;
+      }, { timeout: hostTimeout(15_000) }).toMatchObject({ status: "completed", detail: "Replacement reviewer returned evidence." });
+      const state = (await api("GET", "/api/bots?messages=50")).body;
+      const messages = state.groups.find((group: { id: string }) => group.id === room.id).messages;
+      expect(messages.some((message: { from?: { botId?: string }; role?: string }) => message.role === "bot" && message.from?.botId === bots[2].id)).toBe(true);
+    } finally {
+      await api("DELETE", `/api/groups/${room.id}`);
+      for (const bot of bots) await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
   it("returns to the lead until the goal is completed and appends a clean receipt", async () => {
     const lead = (await api("POST", "/api/bots", {
       name: "Lead",

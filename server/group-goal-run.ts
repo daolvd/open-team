@@ -278,8 +278,8 @@ export async function runGoalRun<Bot extends GoalRunMember>(deps: GoalRunDeps<Bo
     }
     const workerBot = deps.current(worker.id);
     if (!workerBot || workerBot.hidden) {
-      deps.finish("blocked", `${worker.name} is not available.`);
-      return;
+      coordinatorNote = `${worker.name} is no longer available. Choose another active member or perform the assignment yourself.`;
+      continue;
     }
     const assignmentKey = groupGoalAssignmentKey(worker.id, decision.instruction);
     const repeated = (assignmentCounts.get(assignmentKey) ?? 0) + 1;
@@ -303,8 +303,8 @@ export async function runGoalRun<Bot extends GoalRunMember>(deps: GoalRunDeps<Bo
     }));
     if (deps.cancelled()) return;
     if (workerResult.outcome === "unavailable") {
-      deps.finish("blocked", `${workerBot.name} is not available.`);
-      return;
+      coordinatorNote = `${workerBot.name} is not available: ${workerResult.stopReason?.slice(0, 240) ?? "unavailable"}. Reassign the work to another available member or perform it yourself. Continue independent work while this assignment waits.`;
+      continue;
     }
     if (workerResult.outcome === "spend_capped") {
       deps.finish("blocked", workerResult.stopReason ?? `${workerBot.name} hit the workspace spend cap.`);
@@ -325,9 +325,10 @@ export async function runGoalRun<Bot extends GoalRunMember>(deps: GoalRunDeps<Bo
       continue;
     }
     if (!workerResult.ran || workerResult.outcome !== "settled" || !workerResult.replyText.trim()) {
-      const reason = workerResult.stopReason?.trim().slice(0, 120);
-      deps.finish("failed", `${workerBot.name} could not return a result to ${coordinator.name}${reason ? ` — ${reason}` : ""}.`);
-      return;
+      const reason = workerResult.stopReason?.trim().slice(0, 240) ?? workerResult.outcome ?? "No result returned";
+      deps.note(`${workerBot.name}: ${reason} — returning work to ${coordinator.name}`);
+      coordinatorNote = `${workerBot.name} could not return a result: ${reason}. The assignment was "${decision.instruction.slice(0, 160)}". Inspect any partial artifacts before retrying side effects. Choose another member or a different tool/process; a reviewer's missing tool is not a product defect. Continue independent work while any external dependency waits. Do not claim this failed assignment completed.`;
+      continue;
     }
   }
 

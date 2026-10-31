@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { Check, GripVertical, Loader2 } from "lucide-react";
-import { botProcessWorkflow, type BotDesign, type BotProcessRun, type BotProcessConsultant } from "../../shared/bot-design";
+import { botProcessEdges, type BotDesign, type BotDesignEdge, type BotDesignStep, type BotProcessRun, type BotProcessConsultant } from "../../shared/bot-design";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 
@@ -12,8 +12,23 @@ export const processStatusKeys = {
 const width = 200;
 const height = 132;
 
+export function edgeLabel(edge: BotDesignEdge): string {
+  const condition = edge.contains ?? edge.when ?? (edge.condition ? t("design.aiLabel", { text: edge.condition }) : edge.otherwise ? t("design.otherwiseLabel") : t("design.always"));
+  return edge.loop ? `${t("design.loopLabel", { count: edge.loop.max })} · ${condition}` : condition;
+}
+
+export function stepTags(step: BotDesignStep, consultants: BotProcessConsultant[]): string[] {
+  return [
+    step.botId && t("design.teammateDoing", { name: consultants.find((bot) => bot.id === step.botId)?.name ?? step.botId }),
+    step.approval && t("design.badgeApproval"),
+    step.output === "verdict" && t("design.badgeVerdict"),
+    step.forEach && t("design.badgePerItem"),
+    step.model,
+  ].filter((tag): tag is string => Boolean(tag));
+}
+
 export function arrangeProcess(design: BotDesign): BotDesign["steps"] {
-  const { edges } = botProcessWorkflow(design);
+  const edges = botProcessEdges(design).filter((edge) => !edge.loop);
   const levels = new Map<string, number>();
   const level = (id: string): number => {
     if (levels.has(id)) return levels.get(id)!;
@@ -54,7 +69,7 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
   const [wire, setWire] = useState<{ x: number; y: number } | null>(null);
   const layout = arrangeProcess(design);
   const nodes = design.steps.map((step, index) => ({ ...step, x: step.x ?? layout[index]!.x!, y: step.y ?? layout[index]!.y! }));
-  const { edges } = botProcessWorkflow(design);
+  const edges = botProcessEdges(design);
   const curve = (a: { x: number; y: number }, b: { x: number; y: number }) => `M${a.x} ${a.y} C${a.x} ${a.y + 60} ${b.x} ${b.y - 60} ${b.x} ${b.y}`;
   const canvasWidth = Math.max(520, ...nodes.map((step) => step.x + width + 30));
   const canvasHeight = Math.max(360, ...nodes.map((step) => step.y + height + 40));
@@ -77,16 +92,19 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
             const start = { x: a.x + width / 2, y: a.y + height + 10 };
             const end = { x: b.x + width / 2, y: b.y - 12 };
             return <g key={`${edge.from}:${edge.to}`} data-process-connection>
-              <path d={curve(start, end)} fill="none" stroke="currentColor" strokeWidth="2" markerEnd={`url(#${marker})`} />
-              <foreignObject x={(start.x + end.x) / 2 - 55} y={(start.y + end.y) / 2 - 14} width="110" height="30">
-                <button type="button" aria-label={t("design.editConnection", { from: a.title || String(nodes.indexOf(a) + 1), to: b.title || String(nodes.indexOf(b) + 1) })} className="h-7 w-full truncate rounded-md border border-hairline/40 bg-card px-2 text-[11px] text-ink hover:bg-control focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onEdge(index)}>{edge.contains || t("design.always")}</button>
+              <path d={edge.loop ? `M${a.x + width} ${a.y + height / 2} C${Math.max(a.x, b.x) + width + 90} ${a.y + height / 2} ${Math.max(a.x, b.x) + width + 90} ${b.y + height / 2} ${b.x + width + 4} ${b.y + height / 2}` : curve(start, end)}
+                fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray={edge.loop ? "6 4" : undefined} className={edge.loop ? "text-accent" : undefined} markerEnd={`url(#${marker})`} />
+              <foreignObject x={edge.loop ? Math.max(a.x, b.x) + width + 20 : (start.x + end.x) / 2 - 55} y={edge.loop ? (a.y + b.y + height) / 2 - 14 : (start.y + end.y) / 2 - 14} width="110" height="30">
+                <button type="button" aria-label={t("design.editConnection", { from: a.title || String(nodes.indexOf(a) + 1), to: b.title || String(nodes.indexOf(b) + 1) })} className="h-7 w-full truncate rounded-md border border-hairline/40 bg-card px-2 text-[11px] text-ink hover:bg-control focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onEdge(index)} title={edgeLabel(edge)}>{edgeLabel(edge)}</button>
               </foreignObject>
             </g>;
           })}
           {source && wire && <path d={curve({ x: source.x + width / 2, y: source.y + height + 10 }, wire)} fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5 4" className="pointer-events-none text-accent" />}
         </svg>
         {nodes.map((step, index) => {
-          const status = run?.steps.find((entry) => entry.id === step.id)?.status;
+          const result = run?.steps.find((entry) => entry.id === step.id);
+          const status = result?.status;
+          const tags = stepTags(step, consultants);
           return <div key={step.id} data-process-step={step.id} className={`absolute rounded-xl border bg-card ${selectedId === step.id || status === "running" ? "border-accent" : "border-hairline/60"}`} style={{ left: step.x, top: step.y, width, height }}>
             <button type="button" data-process-input={step.id} aria-label={t("design.connectInto", { number: index + 1 })} className={`absolute -top-3 left-1/2 z-10 h-6 -translate-x-1/2 rounded-full border bg-card px-3 text-[11px] focus-visible:outline-2 focus-visible:outline-accent ${connecting ? "border-accent text-accent-text hover:bg-control" : "border-hairline/60 text-ink-secondary"}`} onClick={() => { if (connecting) onConnect(connecting, step.id); }}>{t("design.inputPort")}</button>
             <button type="button" data-process-drag aria-label={t("design.dragStep", { number: index + 1 })} className="absolute right-1 top-4 z-10 flex h-7 w-7 cursor-grab touch-none items-center justify-center rounded-md text-ink-secondary hover:bg-control focus-visible:outline-2 focus-visible:outline-accent active:cursor-grabbing"
@@ -96,8 +114,9 @@ export function BotProcessCanvas({ design, selectedId, connecting, onSelect, onC
             <button type="button" aria-pressed={selectedId === step.id} aria-current={status === "running" ? "step" : undefined} aria-label={t("design.selectStep", { number: index + 1, title: step.title || t("design.stepTitlePlaceholder") })} className="h-full w-full rounded-xl px-3 py-5 text-left hover:bg-control focus-visible:outline-2 focus-visible:outline-accent" onClick={() => onSelect(step.id)}>
               <span className="mr-5 flex items-center gap-2 text-[13px] font-medium"><span className="text-ink-secondary">{index + 1}.</span><span className="truncate">{step.title || t("design.stepTitlePlaceholder")}</span>{status === "running" && <Loader2 size={14} className="shrink-0 animate-spin text-accent motion-reduce:animate-none" />}{status === "completed" && <Check size={14} className="shrink-0 text-success" />}</span>
               {step.askBotId && <span className="mt-1 block truncate text-[11px] font-medium text-accent-text">{t("design.askingBot", { name: consultants.find((bot) => bot.id === step.askBotId)?.name ?? step.askBotId })}</span>}
-              <span className={`${step.askBotId ? "mt-1 line-clamp-1" : "mt-2 line-clamp-2"} break-words text-[12px] leading-4 text-ink-secondary`}>{step.instruction || t("design.stepInstructionPlaceholder")}</span>
-              {status && <span className={`mt-1 block text-[11px] ${status === "failed" ? "text-danger" : status === "running" ? "text-accent" : "text-ink-secondary"}`}>{t(processStatusKeys[status])}</span>}
+              {tags.length > 0 && <span className="mt-1 block truncate text-[11px] font-medium text-accent-text">{tags.join(" · ")}</span>}
+              <span className={`${step.askBotId || tags.length ? "mt-1 line-clamp-1" : "mt-2 line-clamp-2"} break-words text-[12px] leading-4 text-ink-secondary`}>{step.instruction || t("design.stepInstructionPlaceholder")}</span>
+              {status && <span className={`mt-1 block text-[11px] ${status === "failed" ? "text-danger" : status === "running" ? "text-accent" : "text-ink-secondary"}`}>{t(processStatusKeys[status])}{(result?.attempts ?? 1) > 1 ? ` · ${t("design.attempts", { count: result!.attempts! })}` : ""}{result?.verdict?.verdict ? ` · ${result.verdict.verdict}${result.verdict.score !== undefined ? ` ${result.verdict.score}` : ""}` : ""}</span>}
             </button>
             <button type="button" aria-label={t("design.connectFrom", { number: index + 1 })} aria-pressed={connecting === step.id} className="absolute -bottom-3 left-1/2 z-10 h-6 -translate-x-1/2 touch-none rounded-full border border-accent bg-card px-3 text-[11px] text-accent-text hover:bg-control focus-visible:outline-2 focus-visible:outline-accent"
               onPointerDown={(event) => { if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); draggedConnection.current = false; onConnecting(step.id); }}

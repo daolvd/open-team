@@ -124,7 +124,11 @@ export function WorkflowEditor({
       workflow.edges.some((edge) => edge.from === from && edge.to === to)
     )
       return;
-    change({ ...workflow, edges: [...workflow.edges, { from, to }] });
+    change({
+      ...workflow,
+      nodes: workflow.nodes.map(({ when, ...node }) => node.id === to || when === undefined ? node : { ...node, when }),
+      edges: [...workflow.edges, { from, to }],
+    });
     setConnecting(null);
   }
   async function save(next = workflow) {
@@ -572,6 +576,11 @@ export function WorkflowEditor({
                             <span className="mt-1 block truncate text-xs text-ink-secondary">
                               {node.instruction || "Select to define this step"}
                             </span>
+                            {node.when !== undefined && (
+                              <span className="mt-1 block truncate text-xs text-accent-text">
+                                Takes: {node.when}
+                              </span>
+                            )}
                           </button>
                           <div className="mt-4 flex items-center justify-between border-t border-hairline/40 px-3 py-2 text-xs">
                             <button
@@ -658,6 +667,35 @@ export function WorkflowEditor({
                           }
                         />
                       </label>
+                      {!workflow.edges.some((e) => e.to === step.id) && (
+                        <label className="block text-xs text-ink-secondary">
+                          Takes requests when
+                          <textarea
+                            className={`${control} mt-2 min-h-20 w-full resize-y`}
+                            maxLength={2000}
+                            value={step.when ?? ""}
+                            placeholder="Requests about drawing, illustration or UI design"
+                            onChange={(e) =>
+                              change({
+                                ...workflow,
+                                nodes: workflow.nodes.map(({ when, ...n }) =>
+                                  n.id !== step.id
+                                    ? { ...n, ...(when === undefined ? {} : { when }) }
+                                    : e.target.value.trim()
+                                      ? { ...n, when: e.target.value }
+                                      : n,
+                                ),
+                              })
+                            }
+                          />
+                          <span className="mt-2 block leading-relaxed">
+                            The lead bot reads each request and starts only the
+                            steps whose rule applies. Leave empty to always run
+                            this step. When no rule applies, the lead bot
+                            handles the request itself.
+                          </span>
+                        </label>
+                      )}
                       <button
                         className={`${control} disabled:opacity-50`}
                         disabled={dirty}
@@ -909,6 +947,28 @@ export function WorkflowEditor({
                           </div>
                         );
                       })}
+                      {latest.selection && (
+                        <div className="space-y-1 border-t border-hairline/60 pt-3 text-xs">
+                          <p className="font-medium">Request routing</p>
+                          <p>
+                            {latest.selection.status === "running"
+                              ? "Choosing steps…"
+                              : latest.selection.status === "failed"
+                                ? "Routing failed"
+                                : latest.selection.selected!.length
+                                  ? `Chosen: ${latest.selection.selected!.map((id) => bots.find((b) => b.id === latest.workflow.nodes.find((n) => n.id === id)?.botId)?.name ?? id).join(", ")}`
+                                  : "No step applies: the lead bot handled the request"}
+                          </p>
+                          <p className={latest.selection.error ? "text-danger" : "text-ink-secondary"}>
+                            {latest.selection.error || latest.selection.reason}
+                          </p>
+                          {latest.selection.threadId && (
+                            <button className="text-accent-text underline" onClick={() => conversation(latest.workflow.leadBotId, latest.selection!.threadId!)}>
+                              Open routing check
+                            </button>
+                          )}
+                        </div>
+                      )}
                       {latest.routing?.map(decision => {
                         const source = latest.workflow.nodes.find(n => n.id === decision.from);
                         const destination = latest.workflow.nodes.find(n => n.id === decision.to);
